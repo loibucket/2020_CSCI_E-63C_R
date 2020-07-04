@@ -1,0 +1,338 @@
+---
+title: 'CSCI E-63C: Week 2 Problem Set | Loi Cheng'
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(reshape2)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preface
+
+One of the first steps in the analysis of a new dataset, often as part of data cleaning, typically involves generation of high level summaries, such as: the numbers of observations and attributes (variables), which variables are predictors and which ones are (could be?) outcomes; what the ranges, distributions, and percentages of missing values in all the varianbles are; the strength of correlation among the predictors and between the predictors and the outcome(s), etc.  It is usually at this stage when we develop our initial intuition about the level of difficulty of the problem and the challenges presented by this particular dataset. This is when (and how) we form our first set of ideas as to how to approach the problem.  There are many multivariate methods under unsupervised learning umbrella that are extremely useful in this setting (which will be introduced later in the course), but first things first, and here we will start by loading few datasets into R and exploring their attributes in the form of univariate (e.g. single-variable) summaries and bivariate (two-variable) plots and contingency tables (where applicable).
+
+For this problem set we will use datasets available from the [UCI machine learning repository](http://archive.ics.uci.edu/ml/datasets.html) or subsets thereof cleaned up and pre-processed for the instructional purposes. For convenience and in order to avoid the dependence on UCI ML repository availability, we have copied the datasets into the course Canvas website. Once you have downloaded the data onto your computer, they can be imported into R using function `read.table` with necessary options (of which most useful/relevant include: `sep` -- defining field separator and `header` -- letting `read.table` know whether the first line in the text file contains the column names or the first row of data). In principle, `read.table` can also use URL as a full path to the dataset, but here, to be able to work independently of network connection and because of the pre-processing involved, you will need to download those datasets from Canvas website to your local computer and use `read.table` with appropriate paths to the local files.  The simplest thing is probably to copy the data to the same directory where your .Rmd file is, in which case just the file name passed to `read.table` should suffice.  As always, please remember, that `help(read.table)` (or, `?read.table` as a shorthand) will tell you quite a bit about this function and its parameters.
+
+For those datasets that do not have column names included in their data files, it is often convenient to assign them explicitly. Please note that for some of these datasets categorical variables are encoded in the form of integer values (e.g. 1, 2, 3 and 4) and thus R will interpret those as continuous variables by default, while the behavior of many R functions depends on the type of the input variables (continuous vs categorical/factor).
+
+The code excerpts and their output presented below illustrate some of these most basic steps as applied to one of the datasets available from UCI. The homework problems follow after that -- they will require you to apply similar kind of approaches to generate high levels summaries of few other datasets that you are provided here with.
+
+## Haberman Survival Dataset
+
+Note how the `summary` function computes a 5-number summary for continuous variable, cannot do anything particularly useful for a general vector of strings, and counts the numbers of occurrences of distinct levels for a categorical variable (explicitly defined as a factor).
+
+```{r habRead}
+habDat <- read.table("haberman.data",sep=",")
+colnames(habDat) <- c("age","year","nodes","surv")
+summary(habDat$surv)
+```
+```{r}
+habDat$surv <- c("yes","no")[habDat$surv]
+summary(habDat$surv)
+```
+```{r}
+habDat$surv <- factor(habDat$surv)
+summary(habDat$surv)
+```
+
+Below we demonstrate xy-scatterplots of two variables (patient's age and node count), with color indicating their survival past 5 years. The first example uses basic plotting capabilities in R, while the second one shows how the same result can be achieved with `ggplot2` package. Note that in this particular example we choose to show the data stratified by the survival categorical variable in two separate scatterplots, side by side. The reason is purely aesthetic one: since we do indicate distinct classes of patients with different colors it would be entirely possible (and meaningful) to put all the data into a single scatterplot, same way it was done in class. However, the data at hand do not readily separate into (visually) distinct groups, at least in the projection on the two variables chosen here. There would be too much overplotting (exacerbated by the fact that node counts and years take on integer values only), and it would be more difficult to notice that the subset of data shown on the right (`survival=yes`) is in fact much more dense near `nodes=0`. It is certainly OK to use the type of visualization that provides the most insight into the data.
+
+```{r habPlot,fig.height=5,fig.width=10}
+oldPar <- par(mfrow=c(1:2),ps=16)
+for ( iSurv in sort(unique(habDat$surv)) ) {
+    plot(habDat[,c("age","nodes")],type="n",
+        main=paste("Survival:",iSurv))
+    iTmp <- (1:length(levels(habDat$surv)))[levels(habDat$surv)==iSurv]
+    points(habDat[habDat$surv==iSurv,c("age","nodes")],col=iTmp,pch=iTmp)
+}
+par(oldPar)
+```
+
+```{r habPlotGG,fig.height=3,fig.width=6}
+ggplot(habDat,aes(x=age,y=nodes,colour=surv,shape=surv)) + 
+geom_point() + facet_wrap(~surv) + theme_bw()
+```
+
+It seems that higher number of nodes might be associated with lower probability of survival: note that despite the fact that in both survival outcomes, yes and no, we have patients with large node counts and the distributions *above* node count of ~10 look pretty much the same (and structureless too), the `survival=yes` outcome clearly has much higer fraction of low node count cases, as expected. One attempt to quantify this relationship might involve testing relationship between indicators of survival and count of nodes exceeding arbitrarily chosen cutoffs (e.g. zero or 75th percentile as shown in the example below).   
+In the code example we first generate a 2-way matrix that cross-tabulates the respective counts of cases with all combinations of survival yes/no and node count zero/non-zero values. As you can see, when `nodes=0` is true, the survival yes/no outcomes are split as 117/19, while for subset of cases where `nodes=0` is false, the survival yes/no values are split as 108/62, which is certainly much worse (you can check that this difference in survival probability is indeed statistically significant; which statistical test would you use for that?). The second part of the code performs pretty much the same task, except that we stratify the patients with respect to node counts being above or below 75% percentile, instead of being zero or non-zero: 
+
+
+```{r habTbl}
+habDat$nodes0 <- habDat$nodes==0
+table(habDat[, c("surv","nodes0")])
+habDat$nodes75 <- habDat$nodes>=quantile(habDat$nodes,probs=0.75)
+table(habDat[, c("surv","nodes75")])
+```
+
+Please feel free to model your solutions after the examples shown above, while exercising necessary judgement as to which attributes are best represented as continuous and which ones should be represented as categorical, etc.  The descriptions of homework problems provide some guidance as to what is expected, but leave some of those choices up to you. Making such calls is an integral part of any data analysis project and we will be working on advancing this skill throughout this course.
+
+**Lastly -- do ask questions!  Piazza is the best for that**
+
+\newpage
+# Wireless Indoor Localization Data Set (30 points)
+
+This dataset presents an example of classification problem (room identity) using continuous predictors derived from the strengths of several WiFi signals on a smartphone. More details about underlying data can be found in corresponding [dataset description](http://archive.ics.uci.edu/ml/datasets/Wireless+Indoor+Localization) at UCI ML website. To load data into R please use data file `wifi_localization.txt` available both at the course website and/or in UCI ML dataset repository.
+
+Once the dataset in loaded into R, please name appropriately data set attributes (variables), determine the number of variables (explain which ones are predictors and which one is the outcome) and observations in the dataset (R functions such as `dim`, `nrow`, `ncol` could be useful for this), generate summary of the data using `summary` function in R and generate pairwise XY-scatterplots of each pair of continuous predictors, while indicating the outcome using colour and/or shape of the symbols (you may find it convenient to use `pairs` plotting function). Describe your observations and discuss which of the variables are more likely to be informative with respect to discriminating these rooms (this literally means: just by looking at the plots, for the lack of better methods that we have not developed just yet, which variables do you think will be more useful for letting us tell which room the smartphone is in).
+
+```{r}
+
+wifiDat = read.table("wifi_localization.txt",sep="")
+colnames(wifiDat) <- c("A","B","C","D","E","F","G","Room")
+wifiDat$Room = factor(wifiDat$Room)
+
+head(wifiDat)
+tail(wifiDat)
+
+nrow(wifiDat)
+ncol(wifiDat)
+summary(wifiDat$A)
+summary(wifiDat$Room)
+
+```
+
+```{r,fig.height=5,fig.width=10}
+
+op <- par(mfrow=c(2,4),ps=16)
+
+for (n in colnames(wifiDat[1:7])){
+  
+  hist(wifiDat[[n]],main=paste("Hist",n))
+  
+}
+
+par(op)
+
+```
+
+```{R}
+
+boxplot(wifiDat)
+
+```
+
+```{r fig.width = 20, fig.asp = 1}
+
+colors <- c("blue", "green", "red", "yellow")  
+pairs(wifiDat,col = colors[wifiDat$Room],lower.panel=NULL)
+
+```
+
+```{r fig.width = 20, fig.asp = 1}
+
+library(GGally)
+
+ggpairs(wifiDat,progress=F,mapping = ggplot2::aes(color = Room))
+
+
+```
+
+Next, please comment on whether given the data at hand the problem of detecting room identity on the basis of the strength of the WiFi signal appears to be an easy or a hard one to solve. Try guessing, using your best intuition, what could be an error in predicting room identity in this dataset: 50%, 20%, 10%, 5%, 2%, less than that?  Later in the course we will work with this dataset again to actually develop such a classifier, and at that point you will get quantitative answer to this question. For now, what we are trying to achieve is to make you *think* about the data and to provide a (guesstimate) answer just from visual inspection of the scatterplots. Thus, there is no wrong answer at this point, just try your best, explain your (qualitative) reasoning, and make a note of your answer, so you can go back to it several weeks later.  
+
+Finally, please reflect on potential usage of such a model (predicting room identity on the basis of WiFi signal strength) and discuss some of the limitations that the predictive performance of such a model may impose on its utility. Suppose that we can never achieve perfect identification (it's statistics after all), so we will end up with some finite error rate. For instance, if this model was integrated into a "smart home" setup that turns the light on or off depending on which room the smartphone is in, how useful would  be such model if its error rate was, say, 1%, 10% or 50%?  Can you think of alternative scenarios where this type of model could be used which would impose stricter or more lax requirements for its predictive performance?  Once again, the goal here is to prompt you to consider bigger picture aspects that would impact the utility of the model -- there is hardly right or wrong answer to this question, but please do present some kind of summary of your thoughts on this topic, even if in a couple of sentences.
+\
+**For each room, each signal has a fairly normal distribution about certain magnitudes.  For example, for Room 1, the strength of signal A is centered about -60, and for signal G it is at -85.  For Room 2, signal A is centered about -40, and for signal G it is at -75.**
+
+**There is also correlation between certain signals.  Signal A and signal D has a very high correlation at 0.921.  This high correlation suggests that the information provied from both signal may be redundant in it's value in differentiating the room.**
+
+**The more useful signals to identify rooms would have distinct values for each room.  Signals C, D and E tends to have more distinct values for each room.  However, their distributions have overlaps, so we may get occurences where the C signal is identical in Room 1 and Room 2, and not be able to tell which room we are in based in this signal alone.  We would also need signals that can better differentiate between Room 1 and 2, such as A or E.**
+
+**Using this set of data, our error in identifying a room should be less than 20% or 10%.  Each room has a distinct signature of 7 numbers that can be used to identify the room.  If all the 7 signals were identical for each room, then our prediction error would be very high, like 50%.**
+
+**We can use a model from this data to enable a smart home system to turn on and off lights based on the location of our phone.  The error rate should be better than 10% or even 1% to be a good system such that the lights do not turn off while we are working on a task in a room.**
+
+**Wifi signals are used to improve GPS locations on our phones.  In a similar fashion, our phone can measures its signals from nearby hotspots, and send it to a server that can interpret the data based in past statistical measurements, and send the location back to the phone.  As we are not looking for exact location within inches, a high amount of error is tolerable, like within 10 feet or even more is ok.**
+
+\newpage
+# Amount of Fund Raising Contributions (30 points)
+
+This dataset presents an example of a regression problem -- predicting dollar amount of donors' contributions from a direct mail campaign based on their demographics and history of past contributions.  This dataset is a cleaned up subset of one of the datasets used in data mining competitions in the late 90s and it comes with the requirement of describing its source in rather broad (i.e. non-specific) terms if or when it is used for educational purposes.  To load data into R please use file `fund-raising.csv` available at the course website in Canvas.  More details about the data attributes can be found in corresponding file `fund-raising-notes.txt` also available from our course website in Canvas. 
+
+Once the dataset in loaded into R, please determine the number of variables (explain which ones are predictors -- categorical vs. continuous -- and which one is the outcome) and observations in the dataset (R functions such as `dim`, `nrow`, `ncol` could be useful for this), generate summary of the data using `summary` function in R and generate pairwise XY-scatterplots of each pair of *continuous* attributes.
+
+```{r}
+
+library("zoo")
+
+fundDat = read.table("fund-raising.csv",sep=",",header = T)
+
+cat('rows:',nrow(fundDat),"\n")
+cat('cols:',ncol(fundDat))
+
+fundDat$mindate = as.Date( as.yearmon( gsub('(.{2})', '\\1 ', fundDat$mindate) , '%y %m' ) )
+fundDat$maxdate = as.Date( as.yearmon( gsub('(.{2})', '\\1 ', fundDat$maxdate) , '%y %m' ) )
+fundDat$gender = factor(fundDat$gender)
+
+summary(fundDat)
+levels(fundDat$gender)
+
+head(fundDat)
+tail(fundDat)
+
+fundDat[fundDat$contrib > 150, ] 
+fundDat[fundDat$maxcontr > 900, ]
+
+```
+
+```{r}
+
+op = par(mfrow=c(1,2))
+
+boxplot(fundDat,las=2)
+
+boxplot(fundDat[,c(-2,-5,-6,-9,-10,-11,-12,-13)],las=2)
+
+boxplot(fundDat[,c(10,11)],las=2)
+
+boxplot(fundDat[,c('promocontr','ncontrib','mailord')],las=2)
+
+hist(fundDat$gapmos)
+
+hist(fundDat$age)
+
+barplot(table(fundDat$gender),main="Gender")
+
+par(op)
+
+```
+
+```{r fig.width = 20, fig.asp = 1}
+
+rbPal = colorRampPalette(c('violet','blue','green','yellow','orange','red'))
+colors = rbPal(200) 
+pairs(fundDat,col = colors[ fundDat$contrib ],lower.panel=NULL)
+
+```
+
+```{r fig.width = 20, fig.asp = 1}
+
+library(GGally)
+
+ggpairs(fundDat[1:13],progress=F)
+
+
+```
+
+Describe your observations and discuss which attributes might be more useful for predicting the outcome as defined in the `fund-raising-notes.txt` dataset description. 
+
+Try being creative: visualizing and discussing potential associations between each of individual (continuous) predictor variables and the continuous outcome is relatively straightforward. But this time around you cannot really use the outcome to stratify the points in the *pairwise* predictor-predictor scatterplots same way we did it in Problem 1: there we had just four possible values of the (categorical) outcome, but how many distinct values of the donor contribution do we have now? Do the plots make much sense and are they even interpretable if you use all those distinct values of contributed amount, as they are? Is there a way around this?
+\
+**In the pairs plot, the contribution amount is set as the color gradient, where red is highest, and violet is lowest.**
+
+**There are several outliers in the data. For max contribution, there is one data point at 1000, wheras the others are below 200.  There is also one last contribution at 250, while the rest are below 150.  Generally, the number of high contributors are very few, at 1-3 people. **
+
+**The last contribution appears to be a good predictor of future contributions.  Generally, those with low past contribution has low current contribution, and high past contributions go with high current contributions.**  
+
+**Gap months also has some predictive value, where higher contributions correlate with lower gap months, while low contributions has less correlation as the number of contributions are fairly even across the gap months range.**
+
+**Similarly, higher contributions tend to come from higher age, while lower contributions come from all age ranges.**
+
+**There is also a correlation between number of contributions to promo mailing and number of contributions.**
+
+For **extra 5 points** generate boxplots for some of the continuous vs categorical predictors, rendering potential relationships between them.
+
+```{r fig.width=8, fig.height=8}
+op = par(mfrow=c(2,2))
+
+#boxplot(contrib~gender,data=fundDat)
+boxplot(contrib~lastcontr,data=fundDat)
+boxplot(contrib~avecontr,data=fundDat)
+boxplot(ncontrib~promocontr,data=fundDat)
+boxplot(mincontrib~avecontr,data=fundDat)
+
+par(op)
+
+```
+**The plots show some correlation between contrib~lastcontr, contrib~avecontr, ncontrib~promocontr, mincontrib~avecontr** 
+
+\newpage
+# Tibbles (extra 5 points)
+
+Fluency in R (as any other programming language) involves ability to look up, understand, and put to use as necessary new functionality that has not been explored before.  One of relatively recent additions to R are so-called tibbles that can be seen as ["modern take on data frames"](https://cran.r-project.org/web/packages/tibble/vignettes/tibble.html).  To earn extra points offered by this problem, please look up tibble use and constrast their behavior to that of conventional data frame using one of the datasets you have already created above.  To earn all points available your solution must include *more than one* example of substantive differences (same kind of difference illustrated by two datasets counts as *one example*).  Please also comment (briefly is fine) on why the use of tibbles may result in more robust code (or not, it's fine if you happen to find tibbles to be in fact clunkier and not resulting in cleaner code - but you have to argue your point, either way).
+
+```{r}
+
+library("readr")
+library("tibble")
+
+tib_fund = read_delim("fund-raising.csv",",",col_names = T)
+
+class(tib_fund)
+head(tib_fund)
+
+```
+
+```{r}
+
+df_fund = read.table("fund-raising.csv",sep=",",header = T)
+
+class(df_fund)
+head(df_fund)
+
+```
+
+**When reading in data, tibbles outputs the class of each column, whereas dataframe does not.  Tibbles also imports all number columns as numeric; while dataframe imported some of them as double and some of them as integers, depending on the prescene of a decimal point.  Tibbles imports the gender as characters, while dataframe imports them as factors.  So, tibbles makes less assumptions about the data being imported, while dataframe makes assumptions about the class of the column based on what was read.**
+
+**With tibbles, we can be more sure that columns with numbers will always be numeric class, and those with letters are character class, which makes the code more robust, especially when we are writing lines of code and not checking the output line by line.  With dataframe, we cannot be sure what class each column will be until after the data is read.  For those used to dataframes, tibbles may be less convenient and involve more manual conversion of class for each column.  For those that prefer to leave column class untouched without explicit instructions to do so, tibbles may be a better alternative.**
+
+```{r}
+
+tib_fund['gapmos']
+
+class(tib_fund['gapmos'])
+class(df_fund['gapmos'])
+
+```
+**A tibble has the class "tbl_df" "tbl" and "data.frame".  A dataframe only has the class "data.frame".  Calling the tibble only shows max 10 lines, but the dataframe can show all lines of data when called.**
+```{r}
+
+tib_fund$gapmos[1:10]
+df_fund$gapmos[1:10]
+
+class(tib_fund$gapmos)
+class(df_fund$gapmos)
+
+```
+
+**Tibble considers "gapmos" as numeric, because it only has number; but dataframe considers "gapmos" as integer, because it does not have any decimal points.**
+```{r}
+
+tib_fund[,'gapmos']
+df_fund[,'gapmos'][1:10]
+
+class(tib_fund[,'gapmos'])
+class(df_fund[,'gapmos'])
+
+```
+**Using similar commands of item[,colname], tibble outputs a tbl_df, while dataframe outputs a vector.**
+
+```{r}
+
+tib_fund[['gapmos']][1:5]
+df_fund[['gapmos']][1:5]
+
+```
+**Both tibble and dataframe output a vector with the same command."
+
+```{r fig.width = 20, fig.asp = 1}
+
+rbPal = colorRampPalette(c('violet','blue','green','yellow','orange','red'))
+colors = rbPal(200) 
+
+tib_fund$gender = factor(tib_fund$gender)
+
+pairs(tib_fund,col = colors[ fundDat$contrib ],lower.panel=NULL)
+
+```
+
+**A tibble can be used to create a pairs plot and histogram just like a dataframe**
+
+```{r}
+
+hist(tib_fund$gapmos)
+
+```

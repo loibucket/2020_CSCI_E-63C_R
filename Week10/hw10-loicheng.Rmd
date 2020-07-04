@@ -1,0 +1,620 @@
+---
+title: "CSCI E-63C Week 10 Problem Set | Loi Cheng"
+output:
+  html_document:
+    toc: true
+---
+
+# Preface
+
+For this week problem set we will use WiFi localization data (the one we worked with on week 2) to fit logistic regression model and evaluate performance of LDA, QDA and KNN classifiers.  As we have seen earlier this dataset should allow to locate phones fairly well by relying on the strength of WiFi signal, so we should expect to see fairly low error rates for our classifiers.  Let's see whether some of those classifiers perform better than others on this data.
+
+**Important note:** *For the purposes of all problems in this week problem set, we will be predicting whether the phone is at location=3 or not, as opposed to working with multi-class predictor.  In other words, before you proceed with any of the problems in this assignment, please convert the four-levels outcome to the outcome with only two levels: location=3 (must be 500 of those) and not (must be 1500 of them).*
+
+*If you are creating a new column containing this binary outcome, please make sure that the original outcome with four columns is NOT used inadvertently as one of the predictors.  If you are getting invariably 100% accuracy regardless of the choice of the method or split of the data into training and test, chances are your code is using original four-levels outcome as a predictor.*
+
+
+```{r}
+#function
+assess.prediction=function(truth,predicted) {
+   # same length:
+   if ( length(truth) != length(predicted) ) {
+     stop("truth and predicted must be same length!")
+   }
+   # check for missing values (we are going to 
+   # compute metrics on non-missing values only)
+   bKeep = ! is.na(truth)  & ! is.na(predicted)
+   predicted = predicted[ bKeep ]
+   truth = truth[ bKeep ]
+   # only 0 and 1:
+   if ( sum(truth%in%c(0,1))+sum(predicted%in%c(0,1))!=2*length(truth) ) {
+     stop("only zeroes and ones are allowed!")
+   }
+   cat("Total cases that are not NA: ",
+         length(truth),"\n",sep="") 
+   # overall accuracy of the test: how many cases 
+   # (both positive and 
+   # negative) we got right:
+   cat("Correct predictions (accuracy): ",
+     sum(truth==predicted),
+     "(",signif(sum(truth==predicted)*100/
+     length(truth),3),"%)\n",sep="")
+   # how predictions align against known 
+   # training/testing outcomes:
+   # TP/FP= true/false positives, 
+   # TN/FN=true/false negatives
+   TP = sum(truth==1 & predicted==1)
+   TN = sum(truth==0 & predicted==0)
+   FP = sum(truth==0 & predicted==1)
+   FN = sum(truth==1 & predicted==0)
+   P = TP+FN  # total number of
+         # positives in the truth data
+   N = FP+TN  # total number of
+              # negatives
+   cat("TP, TN, FP, FN, P, N:",TP, TN, FP, FN, P, N, fill=TRUE)
+   cat("TPR (sensitivity)=TP/P: ",
+       signif(100*TP/P,3),"%\n",sep="")
+   cat("TNR (specificity)=TN/N: ",
+       signif(100*TN/N,3),"%\n",sep="")
+   cat("PPV (precision)=TP/(TP+FP): ",
+       signif(100*TP/(TP+FP),3),"%\n",sep="")
+   cat("FDR (false discovery)=1-PPV: ",
+       signif(100*FP/(TP+FP),3),"%\n",sep="")
+   cat("FPR =FP/N=1-TNR: ",
+      signif(100*FP/N,3),"%\n",sep="")
+}
+```
+
+
+# Problem 1 (10 points): logistic regression
+
+Fit logistic regression model of the binary categorical outcome (location=3 or not) using seven WiFi signals strengths as predictors in the model.  Produce summary of the model, describe which attributes appear to be significantly associated with the categorical outcome in this model.  Use this model to make predictions on the entire dataset and compare these predictions and corresponding true values of the class attribute using confusion matrix (i.e. contingency table).  Calculate error rate (would this be training or test error in this case?), sensitivity and specificity (assuming that we are predicting class "location=3").  Describe the results.
+
+```{r}
+#read and preview data
+df = read.csv("wifi_localization.txt",sep="\t",header=FALSE)
+#head(df)
+```
+
+```{r}
+#convert dependent to binary outcome
+df_bi = df
+#Check V8 rows
+#nrow(df_bi[which(df_bi$V8 == "3"), ])
+#nrow(df_bi[which(df_bi$V8 != "3"), ])
+df_bi[998:1003,]
+
+df_bi[["V8"]] = as.character(df_bi[["V8"]])
+df_bi[which(df_bi$V8 == "3"), ][["V8"]] = "Three"
+df_bi[which(df_bi$V8 != "Three"), ][["V8"]] = "Not_Three"
+
+#Check V8 rows again after conversion
+df_bi[["V8"]] = as.factor(df_bi[["V8"]])
+#nrow(df_bi[which(df_bi$V8 == "Three"), ])
+#nrow(df_bi[which(df_bi$V8 == "Not_Three"), ])
+df_bi[998:1003,]
+```
+**The V8 column is converted to "Three" for 3 and "Not_Three" for all other values, e.g. 1, 2, 4**
+
+```{r}
+#check integer interpretation of factors
+levels(df_bi$V8)
+as.integer(df_bi$V8)[998:1003]
+#1 is "Not_Three" and 2 is "Three"
+```
+```{r}
+glmFit = glm(V8~.,data=df_bi,family="binomial")
+summary(glmFit)
+```
+**It seems that all all variables used, the wifi siginals, are significantly associated with the categorical outcome in this model.  All of them have a Pr(>|z|) of less than 0.001.**
+
+```{r}
+P = predict(glmFit,newdata = df_bi,type="response")
+#max(P)
+#min(P)
+```
+
+```{r}
+boxplot(P~df_bi$V8)
+```
+
+**The boxplot shows that most of the "Not_Three" have a P value less than 0.3, while most of the "Three" have a P value greater than 0.3.  It does not seem that the decision boundary is at 0.5**
+
+```{r}
+quantile(P)
+```
+```{r}
+#based on the as.integer of the factors, the regression interprets 1 as "Three" and 0 as "Not Three"
+
+#try 0.3 boundary
+P_bi = ifelse(P>0.3,"Three","Not_Three")
+contable = table(actual=df_bi$V8,predicted=P_bi)
+contable
+
+#alternate method
+#tblTmp = table(predicted=c("Not_Three","Three")[1+(P>0.5)],actual=df_bi$V8)
+#tblTmp
+
+#accuracy
+sum(P_bi==df_bi$V8)/nrow(df_bi)
+
+# sensitivity
+contable[2,2] / sum(contable[2,])
+
+# specificity
+contable[1,1] / sum(contable[1,])
+```
+**From the contingency tables, it appears that the decision boundary of 0.3 has a good balance of sensitivity and specificity. The training accuracy is reasonable at 76%, which is an error of 24%**
+
+```{r}
+#try 0.5 boundary
+P_bi = ifelse(P>0.5,"Three","Not_Three")
+contable = table(actual=df_bi$V8,predicted=P_bi)
+contable
+
+#accuracy
+sum(P_bi==df_bi$V8)/nrow(df_bi)
+
+# sensitivity
+contable[2,2] / sum(contable[2,])
+
+# specificity
+contable[1,1] / sum(contable[1,])
+```
+**From the contingency tables, it appears that the decision boundary of 0.5 has higher training accuracy of 78%, or an error rate of 1-0.78 = 22%.  However, it has low sensitivity, it is counting many of the "Three" as "Not_Three".  On the other hand, it has high specificity, so it has low false positives, it does not count many "Not_Three" points as "Three".  So, this boundary is good if we want to be more certain that the data classified as "Three" is actually "Three", at the expense of counting more of the actual "Three" as "Not_Three.**
+
+```{r}
+rocDatTmp <- NULL
+for ( qTmp in quantile(P,(0:10)/10) ) {
+  tblTmp <- table(df_bi$V8,factor(c("Not_Three","Three")[1+(P>=qTmp)],c("Not_Three","Three")))
+  #cat(qTmp,tblTmp[2,2] / sum(tblTmp[2,]),tblTmp[1,1] / sum(tblTmp[1,]),fill=TRUE)
+  rocDatTmp <- rbind(rocDatTmp,c(tblTmp[1,1] / sum(tblTmp[1,]),tblTmp[2,2] / sum(tblTmp[2,])))
+}
+
+plot(rocDatTmp,ylab="Sensitivity",xlab="Specificity")
+abline(1,-1,lty=2)
+```
+\
+**The model seems to skew more towards sensitivity.  For a given specificity, the sensitivity is higher than the reference dotted line, which is a 1 to 1 negative correlation.**
+
+```{r}
+#try 0.5 boundary
+P_bi = ifelse(P>0.5,"Three","Not_Three")
+contable = table(actual=df_bi$V8,predicted=P_bi)
+contable
+
+#accuracy
+sum(P_bi==df_bi$V8)/nrow(df_bi)
+
+# sensitivity
+contable[2,2] / sum(contable[2,])
+
+# specificity
+contable[1,1] / sum(contable[1,])
+```
+```{r}
+assess.prediction(as.numeric(df_bi$V8)-1,as.numeric(P>0.5))
+```
+**A summary of the metrics are listed above.**
+
+# Problem 2 (10 points): LDA and QDA
+
+Using LDA and QDA implementations available in the package `MASS`, fit LDA and QDA classifiers on the entire dataset and calculate confusion matrix, (training) error rate, sensitivity and specificity for each of them.  Compare them to those of logistic regression.  Describe the results.
+
+```{r}
+library("MASS")
+ldaFit = lda(V8~.,data=df_bi)
+ldaFit
+```
+```{r}
+plot(ldaFit)
+```
+\
+**Most of the Not_Three appears normally distributed about -1, and most of the Three appears normally distributed about +1.  There is good separation between the outcomes.**
+
+```{r}
+Plda = predict(ldaFit,newdata = df_bi)
+conLda = table(actual=df_bi$V8,predicted=Plda$class)
+conLda
+```
+```{r}
+assess.prediction(as.numeric(df_bi$V8)-1,as.numeric(Plda$class=="Three"))
+```
+
+**The result metrics for lda, in terms of accuracy, sensitivity, specificity, is nearly identical to logistic regression, which is listed below**
+
+Logistic Regression:
+
+           predicted
+actual      Not_Three Three
+  Not_Three      1385   115
+  Three           322   178
+[1] 0.7815
+[1] 0.356
+[1] 0.9233333
+
+Total cases that are not NA: 2000
+Correct predictions (accuracy): 1563(78.2%)
+TP, TN, FP, FN, P, N: 178 1385 115 322 500 1500
+TPR (sensitivity)=TP/P: 35.6%
+TNR (specificity)=TN/N: 92.3%
+PPV (precision)=TP/(TP+FP): 60.8%
+FDR (false discovery)=1-PPV: 39.2%
+FPR =FP/N=1-TNR: 7.67%
+
+```{r}
+#double check
+#accuracy
+#sum(Plda$class==df_bi$V8)/nrow(df_bi)
+# sensitivity
+#conLda[2,2] / sum(conLda[2,])
+# specificity
+#conLda[1,1] / sum(conLda[1,])
+```
+
+```{r}
+qdaFit = qda(V8~.,data=df_bi)
+qdaFit
+```
+
+```{r}
+Pqda = predict(qdaFit,newdata = df_bi)
+conQda = table(actual=df_bi$V8,predicted=Pqda$class)
+conQda
+```
+```{r}
+assess.prediction(as.numeric(df_bi$V8)-1,as.numeric(Pqda$class=="Three"))
+```
+
+**The result metrics for qda appears much better than both lda and logistic regression.  The accuracy is much higher at 96.5%, vs 78% for the others.  Both the sensitivity and specificity are much higher as well.  There is little trade off between sensitivity and specificity as compared with logistic regression, where increasing one tends to decrease the other.**
+
+```{r}
+#double check
+#accuracy
+#sum(Pqda$class==df_bi$V8)/nrow(df_bi)
+# sensitivity
+#conQda[2,2] / sum(conQda[2,])
+# specificity
+#conQda[1,1] / sum(conQda[1,])
+```
+
+# Problem 3 (10 points): KNN
+
+Using `knn` from library `class`, fit KNN classifiers for the entire dataset and calculate confusion matrix, (training) error rate, sensitivity/specificity for  $k=1$, $5$ and $25$ nearest neighbors models.  Compare them to the corresponding results from LDA, QDA and logistic regression. Describe results of this comparison and discuss whether it is surprising to see low *training* error for KNN classifier with $k=1$.
+
+```{r}
+library(FNN)
+##?knn
+train=sort(sample(nrow(df_bi),1000))
+train[1:10]
+```
+
+```{r}
+#split data into training and test sets
+dtrain = subset(df_bi[train,],select=-c(V8))
+dtest = subset(df_bi[-train,],select=-c(V8))
+#dtrain
+#dtest
+ytrain = df_bi[train,]$V8
+ytest = df_bi[-train,]$V8
+```
+
+```{r}
+#k=25
+Pk = knn(as.matrix(dtrain),as.matrix(dtest),ytrain,k=25)
+conk = table(ytest,Pk)
+conk
+assess.prediction(as.numeric(ytest)-1,as.numeric(Pk=="Three"))
+```
+```{r}
+sum(Pk==ytest)
+```
+
+```{r}
+#double check
+#accuracy
+#sum(Pk==ytest)/length(ytest)
+# sensitivity
+#conk[2,2] / sum(conk[2,])
+# specificity
+#conk[1,1] / sum(conk[1,])
+```
+```{r}
+#k=5
+Pk = knn(as.matrix(dtrain),as.matrix(dtest),ytrain,k=5)
+conk = table(ytest,Pk)
+conk
+assess.prediction(as.numeric(ytest)-1,as.numeric(Pk=="Three"))
+```
+
+```{r}
+#k=1
+Pk = knn(as.matrix(dtrain),as.matrix(dtest),ytrain,k=1)
+conk = table(ytest,Pk)
+conk
+assess.prediction(as.numeric(ytest)-1,as.numeric(Pk=="Three"))
+```
+**Out of all the methods so far (LDA, QDA, Logistic Regression), kNN with k=1 appears to have the best results, as shown above.  Knn has an accuracy of 99%, which is the highest.  The next best is QDA, shown below, with accuracy of 96.5%.  Knn also has the highest in sensitivity and specificity.**
+
+**The best results is achieved with a low k value of 1.  Higher k values decreased the accuracy of the model.  This suggests that the closet neighbor (the one with the most similar variable values) has a much higher importance than any of the subsequent neighbors.  This occurrence could also be due to insufficient data, such that having too high k value actually impairs the model, as it is taking data that is very far away into consideration, like using data from room 2 to predict a point that is actually in room 3.**
+
+QDA Predictions:
+           predicted
+actual      Not_Three Three
+  Not_Three      1489    11
+  Three            59   441
+
+Total cases that are not NA: 2000
+Correct predictions (accuracy): 1930(96.5%)
+TP, TN, FP, FN, P, N: 441 1489 11 59 500 1500
+TPR (sensitivity)=TP/P: 88.2%
+TNR (specificity)=TN/N: 99.3%
+PPV (precision)=TP/(TP+FP): 97.6%
+FDR (false discovery)=1-PPV: 2.43%
+FPR =FP/N=1-TNR: 0.733%
+
+```{r fig.width=10,fig.height=5}
+rocDatTmp <- NULL
+for ( kTmp in 1:25 ) {
+  knnTmp <- knn(as.matrix(dtrain),as.matrix(dtest),ytrain,k=kTmp)
+  tblTmp <- table(ytest,knnTmp)
+  rocDatTmp <- rbind(rocDatTmp,c(kTmp, tblTmp[1,1] / sum(tblTmp[1,]),tblTmp[2,2] / sum(tblTmp[2,]), sum(knnTmp==ytest)/length(ytest) ))
+}
+old.par <- par(mfrow=c(1,2))
+plot(rocDatTmp[,-1],xlab="Specificity",ylab="Sensitivity",xlim=c(0,1),ylim=c(0,1))
+abline(1,-1,lty=2)
+plot(rocDatTmp[,1],rocDatTmp[,2],xlab="K",ylab="",ylim=c(0,1))
+points(rocDatTmp[,1],rocDatTmp[,3],col=2)
+points(rocDatTmp[,1],rocDatTmp[,4],col=3)
+legend("bottomright",c("Specificity","Sensitivity","Accuracy"),col=1:3,pch=1,text.col=1:2)
+```
+**The plots above show KNN has consistently high performance with k values of 1 to 25.**
+
+```{r}
+hist(attr(Pk, "nn.dist"),breaks=15,xlab="Distance")
+```
+
+**The histogram shows the distances are centered about 4, so most of the points are about 4 lengths from another point.  There are a few point at 10 to 12 that are relatively far from the others.**
+
+# Problem 4 (30 points): compare test errors of logistic regression, LDA, QDA and KNN
+
+Using resampling approach of your choice (e.g. cross-validation, bootstrap, etc.) obtain test error as well as sensitivity and specificity for each of these methods (logistic regression, LDA, QDA, KNN with $k=1,7,55,351$).  Present results in the form of boxplots, compare test error/sensitivity/specificity across these methods and discuss their relative performance.
+
+```{r}
+library("e1071")
+```
+```{r fig.width=12, fig.height=4}
+
+#iterate and generate boxplots
+logi = NULL
+ldai = NULL
+qdai = NULL
+knni = NULL
+nbai = NULL
+iter = 50
+
+for (i in 1:iter) {
+
+  #split data into training and test sets
+  train=sort(sample(nrow(df_bi),1000))
+  dtrain = subset(df_bi[train,],select=-c(V8))
+  dtest = subset(df_bi[-train,],select=-c(V8))
+  ytrain = df_bi[train,]$V8
+  ytest = df_bi[-train,]$V8
+  
+  #logistic regression
+  glmFit = glm(ytrain~.,data=cbind(dtrain,ytrain),family="binomial")
+  P = predict(glmFit,newdata = dtest,type="response")
+  P_bi = ifelse(P>0.5,"Three","Not_Three")
+  contable = table(actual=ytest,predicted=P_bi)
+  #accuracy
+  accu = sum(P_bi==ytest)/length(ytest)
+  # sensitivity
+  sensi = contable[2,2] / sum(contable[2,])
+  # specificity
+  speci = contable[1,1] / sum(contable[1,])
+  logi = rbind(logi,c(accu,sensi,speci))
+  
+  #LDA
+  ldaFit = lda(ytrain~.,data=cbind(dtrain,ytrain))
+  Plda = predict(ldaFit,newdata = dtest)
+  conLda = table(actual=ytest,predicted=Plda$class)
+  #accuracy
+  accu = sum(Plda$class==ytest)/length(ytest)
+  # sensitivity
+  sensi = conLda[2,2] / sum(conLda[2,])
+  # specificity
+  speci = conLda[1,1] / sum(conLda[1,])
+  ldai = rbind(ldai,c(accu,sensi,speci))
+  
+  #QDA
+  qdaFit = qda(ytrain~.,data=cbind(dtrain,ytrain))
+  Pqda = predict(qdaFit,newdata = dtest)
+  conQda = table(actual=ytest,predicted=Pqda$class)
+  #accuracy
+  accu = sum(Pqda$class==ytest)/length(ytest)
+  # sensitivity
+  sensi = conQda[2,2] / sum(conQda[2,])
+  # specificity
+  speci = conQda[1,1] / sum(conQda[1,])
+  qdai = rbind(qdai,c(accu,sensi,speci))
+
+  for (kay in c(1,7,55,351)){
+    #KNN
+    Pk = knn(as.matrix(dtrain),as.matrix(dtest),ytrain,k=kay)
+    conk = table(ytest,Pk)
+    #accuracy
+    accu = sum(Pk==ytest)/length(ytest)
+    # sensitivity
+    sensi = conk[2,2] / sum(conk[2,])
+    # specificity
+    speci = conk[1,1] / sum(conk[1,])
+    knni = rbind(knni,c(accu,sensi,speci))
+  }
+  
+  #Naive Bayes
+  nbFit = naiveBayes(ytrain~.,data=cbind(dtrain,ytrain))
+  Pnb = predict(nbFit,newdata = dtest)
+  conNb = table(actual=ytest,predicted=Pnb)
+  #accuracy
+  accu = sum(Pnb==ytest)/length(ytest)
+  # sensitivity
+  sensi = conNb[2,2] / sum(conNb[2,])
+  # specificity
+  speci = conNb[1,1] / sum(conNb[1,])
+  nbai = rbind(nbai,c(accu,sensi,speci))  
+
+}
+
+col = 1
+accu = cbind(logi[,col], ldai[,col], qdai[,col], knni[1:iter,col], knni[(iter+1):(2*iter),col], knni[(2*iter+1):(3*iter),col], knni[(3*iter+1):(4*iter),col], nbai[,col])
+col = 2
+sensi = cbind(logi[,col], ldai[,col], qdai[,col], knni[1:iter,col], knni[(iter+1):(2*iter),col], knni[(2*iter+1):(3*iter),col], knni[(3*iter+1):(4*iter),col], nbai[,col])
+col = 3
+speci = cbind(logi[,col], ldai[,col], qdai[,col], knni[1:iter,col], knni[(iter+1):(2*iter),col], knni[(2*iter+1):(3*iter),col], knni[(3*iter+1):(4*iter),col], nbai[,col])
+
+op = par(mfrow=c(1,3))
+label = c("log_reg", "LDA", "QDA", "KNN 1", "KNN7", "KNN55", "KNN351","NB")
+boxplot(accu, las=2, names=label, main = paste("Accuracy,n=",iter))
+boxplot(sensi, las=2, names=label, main = "Sensitivity")
+boxplot(speci, las=2, names=label, main = "Specificity")
+par(op)
+
+```
+
+**The boxplots above compare the metrics of the different classification methods, which were based on data from multiple iterations of resampling into training and test sets.  Out of all the methods, logistic regression (with P=0.5 boundary) and LDA has the worst results, in terms of relatively low accuracy, sensitivity and specificity.  QDA has high accuracy and sensitivity, but both are lower than from KNN.  However, the specificity of QDA is the highest.  The KNN methods appear to be the best methods for the data.  It has the highest accuracy and sensitivity.  The KNN specificity is lower than the QDA, but it is still very high at abou 0.98.**
+
+**For Naive Bayes, accuracy is very high, and similar to KNN.  Sensitivity is lower than from KNN, but still high, and higher than QDA.  The specificity is very high, it is higher than KNN and close to QDA.  Overall, Naive Bayes performance is comparable to KNN**
+
+# Extra 5 points problem: naive Bayes classifier
+
+Fit naive Bayes classifier (see lecture slides for examples of using `naiveBayes` function from package `e1071`) to the WiFi localization dataset with binary (location=3 or not) outcome and assess its performance on test data by resampling along with logistic regression, LDA, QDA and KNN in the Problem 4 above.
+
+**See above problem 4**
+
+# Extra 10 points problem: interaction terms in logistic regression
+
+Add pairwise interaction terms to the logistic regression model fit in the Problem 1 above and evaluate impact of their addition on training **and** test error.  You can add all pairwise interaction terms or a subset of them, in which case the rationale behind selecting such a subset has to be described in your solution.
+
+```{r fig.width=12,fig.height=4,message=F, warning=F}
+
+logi_train = NULL
+logi_test = NULL
+logi_P_train = NULL
+logi_P_test = NULL
+iter = 50
+
+for (i in 1:iter) {
+
+  trainRows=sort(sample(nrow(df_bi),1000))
+  
+  #data set without pairs
+  dtrain = subset(df_bi[trainRows,],select=-c(V8))
+  dtest = subset(df_bi[-trainRows,],select=-c(V8))
+  ytrain = df_bi[trainRows,]$V8
+  ytest = df_bi[-trainRows,]$V8
+  
+  #double for loop to make all the pairs
+  df_pairs = data.frame(matrix(nrow=nrow(df_bi), ncol=0))
+  df_bi_clean = subset(df_bi,select=-c(V8))
+  for (m in 1:(length(df_bi_clean)-0)){
+    for (n in m:(length(df_bi_clean)-0)){
+      if (n!=m){df_pairs[(paste(names(df_bi_clean[m]),"x",names(df_bi_clean[n])))] = df_bi_clean[m] * df_bi_clean[n]}
+    }
+  }
+  
+  #data set with pairs
+  df_new = cbind(df_bi,df_pairs)
+  dtrain_P = subset(df_new[trainRows,],select=-c(V8))
+  dtest_P = subset(df_new[-trainRows,],select=-c(V8))
+  ytrain_P = df_new[trainRows,]$V8
+  ytest_P = df_new[-trainRows,]$V8
+  
+  #dtrain
+  #dtest
+  #ytrain[1:10]
+  #ytest[1:10]
+  
+  #dtrain_P
+  #dtestP_P
+  #ytrain_P[1:10]
+  #ytest_P[1:10]
+  
+  ##logistic regression no pairs
+  glmFit = glm(ytrain~.,data=cbind(dtrain,ytrain),family="binomial")
+  
+  #train
+  P = predict(glmFit,newdata = dtrain,type="response")
+  P_bi = ifelse(P>0.5,"Three","Not_Three")
+  contable = table(actual=ytrain,predicted=P_bi)
+  #accuracy
+  accu = sum(P_bi==ytrain)/length(ytrain)
+  # sensitivity
+  sensi = contable[2,2] / sum(contable[2,])
+  # specificity
+  speci = contable[1,1] / sum(contable[1,])
+  logi_train = rbind(logi_train,c(accu,sensi,speci))
+  
+  #test
+  P = predict(glmFit,newdata = dtest,type="response")
+  P_bi = ifelse(P>0.5,"Three","Not_Three")
+  contable = table(actual=ytest,predicted=P_bi)
+  #accuracy
+  accu = sum(P_bi==ytest)/length(ytest)
+  # sensitivity
+  sensi = contable[2,2] / sum(contable[2,])
+  # specificity
+  speci = contable[1,1] / sum(contable[1,])
+  logi_test = rbind(logi_test,c(accu,sensi,speci))
+  
+  ##logistic regression pairwise
+  glmFit_P = glm(ytrain_P~.,data=cbind(dtrain_P,ytrain_P),family="binomial")
+  
+  #train
+  P = predict(glmFit_P,newdata = dtrain_P,type="response")
+  P_bi = ifelse(P>0.5,"Three","Not_Three")
+  contable = table(actual=ytrain_P,predicted=P_bi)
+  #accuracy
+  accu = sum(P_bi==ytrain_P)/length(ytrain_P)
+  # sensitivity
+  sensi = contable[2,2] / sum(contable[2,])
+  # specificity
+  speci = contable[1,1] / sum(contable[1,])
+  logi_P_train = rbind(logi_P_train,c(accu,sensi,speci))
+  
+  #test
+  P = predict(glmFit_P,newdata = dtest_P,type="response")
+  P_bi = ifelse(P>0.5,"Three","Not_Three")
+  contable = table(actual=ytest_P,predicted=P_bi)
+  #accuracy
+  accu = sum(P_bi==ytest_P)/length(ytest_P)
+  # sensitivity
+  sensi = contable[2,2] / sum(contable[2,])
+  # specificity
+  speci = contable[1,1] / sum(contable[1,])
+  logi_P_test = rbind(logi_P_test,c(accu,sensi,speci))
+
+}
+
+col = 1
+accu = cbind(logi_train[,col], logi_test[,col], logi_P_train[,col], logi_P_test[,col])
+col = 2
+sensi = cbind(logi_train[,col], logi_test[,col], logi_P_train[,col], logi_P_test[,col])
+col = 3
+speci = cbind(logi_train[,col], logi_test[,col], logi_P_train[,col], logi_P_test[,col])
+
+op = par(mfrow=c(1,3))
+label = c("train", "test", "pairs_train", "pairs_test")
+boxplot(accu, las=2, names=label, main = paste("Accuracy,n=",iter))
+boxplot(sensi, las=2, names=label, main = "Sensitivity")
+boxplot(speci, las=2, names=label, main = "Specificity")
+par(op)
+
+```
+
+**With the pairwise terms, the 3 metrics are greatly improved, as shown in the box plots above.  The improvement is seen for both test and training data predictions.  Overall, the test predictions are lower than train predictions, as expected.**
+
+**However, the model has many warnings about "glm.fit: fitted probabilities numerically 0 or 1 occurred".  It seems the model is predicting a perfect 1 or 0 for some of the data, which is unusual.**
+
+
+

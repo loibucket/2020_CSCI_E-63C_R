@@ -1,0 +1,587 @@
+---
+title: "CSCI E-63C Week 12 Problem Set | Loi Cheng"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+library(ISLR)
+library(e1071)
+library(randomForest)
+library(class)
+library(ggplot2)
+library(GGally)
+knitr::opts_chunk$set(echo = TRUE)
+
+#function
+assess.prediction=function(truth,predicted) {
+   # same length:
+   if ( length(truth) != length(predicted) ) {
+     stop("truth and predicted must be same length!")
+   }
+   # check for missing values (we are going to 
+   # compute metrics on non-missing values only)
+   bKeep = ! is.na(truth)  & ! is.na(predicted)
+   predicted = predicted[ bKeep ]
+   truth = truth[ bKeep ]
+   # only 0 and 1:
+   if ( sum(truth%in%c(0,1))+sum(predicted%in%c(0,1))!=2*length(truth) ) {
+     stop("only zeroes and ones are allowed!")
+   }
+   cat("Total cases that are not NA: ",
+         length(truth),"\n",sep="") 
+   # overall accuracy of the test: how many cases 
+   # (both positive and 
+   # negative) we got right:
+   cat("Correct predictions (accuracy): ",
+     sum(truth==predicted),
+     "(",signif(sum(truth==predicted)*100/
+     length(truth),3),"%)\n",sep="")
+   # how predictions align against known 
+   # training/testing outcomes:
+   # TP/FP= true/false positives, 
+   # TN/FN=true/false negatives
+   TP = sum(truth==1 & predicted==1)
+   TN = sum(truth==0 & predicted==0)
+   FP = sum(truth==0 & predicted==1)
+   FN = sum(truth==1 & predicted==0)
+   P = TP+FN  # total number of
+         # positives in the truth data
+   N = FP+TN  # total number of
+              # negatives
+   cat("TP, TN, FP, FN, P, N:",TP, TN, FP, FN, P, N, fill=TRUE)
+   cat("TPR (sensitivity)=TP/P: ",
+       signif(100*TP/P,3),"%\n",sep="")
+   cat("TNR (specificity)=TN/N: ",
+       signif(100*TN/N,3),"%\n",sep="")
+   cat("PPV (precision)=TP/(TP+FP): ",
+       signif(100*TP/(TP+FP),3),"%\n",sep="")
+   cat("FDR (false discovery)=1-PPV: ",
+       signif(100*FP/(TP+FP),3),"%\n",sep="")
+   cat("FPR =FP/N=1-TNR: ",
+      signif(100*FP/N,3),"%\n",sep="")
+}
+
+wifiLocDat <- read.table("wifi_localization.txt",sep="\t")
+colnames(wifiLocDat) <- c(paste0("WiFi",1:7),"Loc")
+#ggpairs(wifiLocDat,aes(colour=factor(Loc)))
+wifiLocDat[,"Loc3"] <- factor(wifiLocDat[,"Loc"]==3)
+wifiLocDat <- wifiLocDat[,colnames(wifiLocDat)!="Loc"]
+#dim(wifiLocDat)
+#summary(wifiLocDat)
+#head(wifiLocDat)
+```
+
+# Preface
+
+This week problem set will explore behavior of support vector classifiers and SVMs (following the distinction made in ISLR) on WiFi localization dataset from UCI ML archive.  We worked with it on multiple occasions before (most recently two weeks ago evaluating performance of logistic regression, discriminant analysis and KNN on it).  As two weeks ago we are going to convert the four-levels outcome in the data file to the binary one indicating localization at the third location:
+
+```{r wifiExample,fig.width=8,fig.height=8,message=FALSE,warning=FALSE}
+wifiLocDat <- read.table("wifi_localization.txt",sep="\t")
+colnames(wifiLocDat) <- c(paste0("WiFi",1:7),"Loc")
+ggpairs(wifiLocDat,aes(colour=factor(Loc)))
+wifiLocDat[,"Loc3"] <- factor(wifiLocDat[,"Loc"]==3)
+wifiLocDat <- wifiLocDat[,colnames(wifiLocDat)!="Loc"]
+dim(wifiLocDat)
+summary(wifiLocDat)
+head(wifiLocDat)
+```
+
+Here we will use SVM implementation available in library `e1071` to fit classifiers with linear and radial (polynomial for extra points) kernels and compare their relative performance as well as to that of random forest and KNN.
+
+# Problem 1 (20 points): support vector classifier (i.e. using linear kernel) 
+
+Use `svm` from library `e1071` with `kernel="linear"` to fit classifier (e.g. ISLR Ch.9.6.1) to the entire WiFi localization dataset setting parameter `cost` to 0.001, 1, 1000 and 1 mln.  Describe how this change in parameter `cost` affects model fitting process (hint: the difficulty of the underlying optimization problem increases with cost -- can you explain what drives it?) and its outcome (how does the number of support vectors change with `cost`?) and what are the implications of that.  Explain why change in `cost` value impacts number of support vectors found. (Hint: there is an answer in ISLR.)  Use `tune` function from library `e1071` (see ISLR Ch.9.6.1 for details and examples of usage) to determine approximate value of cost (in the range between 0.1 and 100 -- the suggested range spanning ordes of magnitude should hint that the density of the grid should be approximately logarithmic -- e.g. 1, 3, 10, ... or 1, 2, 5, 10, ... etc.) that yields the lowest error in cross-validation employed by `tune`.  Setup a resampling procedure repeatedly splitting entire dataset into training and test, using training data to `tune` cost value and test dataset to estimate classification error. Report and discuss distributions of test errors from this procedure and selected values of `cost`.
+
+```{r}
+#svm
+c = 0.001
+svmfit = svm(Loc3~.,data=wifiLocDat,kernel="linear",cost=c,scale=FALSE)
+summary(svmfit)
+
+P = predict(svmfit)
+table(acutal=wifiLocDat$Loc3,predicted=P)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+
+#plot(svmfit,wifiLocDat,WiFi3~WiFi5)
+
+```
+**With cost of 0.001, the model predicts all points as false, so it has 0% sensitivity.  This is not a good model.  The low cost allows for very large margin, so very high misclassification is tolerated.  The large margin also means that more points lie on this margin, and so they are support vectors.  The number of support vectors are high, at 1005, about half the dataset.  The plots show that all the red points, which are actual true, are X support vectors, which are misclassified as FALSE.**
+
+```{r fig.width=6, fig.height=5}
+op=par(mfrow=c(1,1))
+plt=NULL
+for(m in names(wifiLocDat)[1:7]){
+   for(n in names(wifiLocDat)[1:7]){
+      
+      if(m != n){
+         
+         a=as.name(m)
+         b=as.name(n)
+         c=as.formula(paste0(a, "~", b))
+         
+         #plot(cbind(wifiLocDat[m],wifiLocDat[n]))
+         plt = c(plt,plot(svmfit,wifiLocDat,c))
+      
+      }
+   }
+}
+plt
+par(op)
+```
+
+**Plotting of some axis shows the SVM boundary, like WiFi5 and WiFi6.  However, they don't seem to match the results, that all points are predicted FALSE.  Probably, the boundary shown is only see a slice of the hyperplane, which is multidimensional.  As such , some of the plots do not show the boundary at all, so the hyperplane did not intersect across those axis values.**
+
+```{r eval=FALSE}
+par(mfrow=c(2,2))
+#plot(svmfit,wifiLocDat,WiFi1~WiFi2)
+#plot(svmfit,wifiLocDat,WiFi1~WiFi2)
+#plot(svmfit,wifiLocDat,WiFi1~WiFi2)
+#plot(svmfit,wifiLocDat,WiFi1~WiFi2)
+#plot(cbind(wifiLocDat["WiFi1"],wifiLocDat["WiFi2"]))
+#plot(cbind(wifiLocDat["WiFi1"],wifiLocDat["WiFi2"]))
+#plot(cbind(wifiLocDat["WiFi1"],wifiLocDat["WiFi2"]))
+#plot(cbind(wifiLocDat["WiFi1"],wifiLocDat["WiFi2"]))
+par(op)
+```
+
+
+```{r}
+#svm
+c = 1
+svmfit = svm(Loc3~.,data=wifiLocDat,kernel="linear",cost=c,scale=FALSE)
+summary(svmfit)
+
+P = predict(svmfit)
+table(acutal=wifiLocDat$Loc3,predicted=P)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+**With cost set at 1, the model is improved over the 0.001 cost model.  The number of support vectors are reduced, but it is still high at roughly half the data set and only very slightly down compared to the 0.001 model.  The false negative is higher than the true negative, so it is not very good at predicting true positive.**
+
+```{r}
+#svm
+c = 1000
+svmfit = svm(Loc3~.,data=wifiLocDat,kernel="linear",cost=c,scale=FALSE)
+summary(svmfit)
+
+P = predict(svmfit)
+table(acutal=wifiLocDat$Loc3,predicted=P)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+**With cost set to 1000, the number of support vectors are greatly reduced, to about 10% of the data.  The runtime is much more than the 1 and 0.001 cost models.  A higher cost means that the model has to search harder to find a boundary with a small margin that meets the cost requirements.  Unlike the 1 cost model, which has excessive false negatives, this 1000 cost model has excessive false positives.**
+
+
+```{r}
+#svm
+c = 1000000
+svmfit = svm(Loc3~.,data=wifiLocDat,kernel="linear",cost=c,scale=FALSE)
+summary(svmfit)
+
+P = predict(svmfit)
+table(acutal=wifiLocDat$Loc3,predicted=P)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+
+**With 1million cost, the runtime is the longest.  Out of all the models, this has the fewest support vectors.  This model is reducing the number of false negatives, but at the expense of increasing false positives.  In a medical scenario, the model ensures that everyone that needs a treatment actually gets the treatment.  At the same time, it also treats many others that do not need the treatment, which is ok if the unneeded treatment does not cause harm.  It will only skip someone if it is very confident that the person does not need it.**
+
+```{r}
+# tune cost by cross-validation:
+set.seed(1)
+tune.out = tune(svm, Loc3~., data=wifiLocDat, kernel="linear", ranges=list(cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100, 1000)))
+summary(tune.out)
+```
+**The tune function indicates a cost of 100 is best.**
+
+```{r}
+# denser grid around minimum:
+set.seed(1)
+tune.out.1 = tune(svm, Loc3~., data=wifiLocDat, kernel="linear", ranges=list(cost=seq(14,15,0.1)))
+summary(tune.out.1)
+```
+**After several tries, the cost at between 14.3 and 100 appears to have the best error value.**
+
+```{r}
+# best model:
+bestmod = tune.out.1$best.model
+summary(bestmod)
+P = predict(bestmod)
+tab = table(acutal=wifiLocDat$Loc3,predicted=P)
+tab
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+
+```{r}
+#repeat with train/test sets
+cost = NULL
+accu = NULL
+for( i in 1:10 ){
+
+   train=sort(sample(nrow(wifiLocDat),floor(0.8*nrow(wifiLocDat))))
+   #split data into training and test sets
+   dtrain = subset(wifiLocDat[train,])
+   dtest = subset(wifiLocDat[-train,])
+   
+   dtune = tune(svm, Loc3~., data=dtrain, kernel="linear", ranges=list(cost=c(0.001,0.01,0.1,1,2,5,10,20,30)))
+   bestmod = dtune$best.model
+   
+   P = predict(bestmod,dtest)
+   tab = table(acutal=dtest$Loc3,predicted=P)
+   
+   cost = c(cost,bestmod$cost)
+   accu = c(accu,sum(diag(tab))/sum(tab))
+
+}
+```
+
+
+```{r}
+sort(unique(cost))
+mean(accu)
+plot(cost,accu)
+```
+**The optimal cost varies from 0.001 to 10, while the accuracy varies from 0.72 to 0.78, which is a fairly close range.**
+
+# Problem 2 (10 points): comparison to random forest
+
+Fit random forest classifier on the entire WiFi localization dataset with default parameters.  Calculate resulting misclassification error as reported by the confusion matrix in random forest output.  Explain why error reported in random forest confusion matrix represents estimated test (as opposed to train) error of the procedure.  Compare resulting test error to that for support vector classifier obtained above and discuss results of such comparison.
+
+**The random forest $predicted error is a test error, because the data it is predicting was not used in making the classifier.  In another word, it is the predicted values of the input data based on out-of-bag samples.**
+
+```{r}
+features = wifiLocDat[,-which(names(wifiLocDat) %in% c("Loc3"))]
+class = wifiLocDat$Loc3
+
+# Fit random forest to train data, obtain test error:
+rfRes = randomForest(features,class)
+
+tab = table(actual=class,predicted=rfRes$predicted)
+accu = sum(diag(tab))/sum(tab)
+
+tab
+accu
+
+P = rfRes$predicted
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+**Compared to svm, random forest has much better accuracy at 98%.  It also has very good TPR and TNR.  The differences suggest the data is not linearly separable, so the linear svm has poor performance.**
+
+# Problem 3 (10 points): Comparison to cross-validation tuned KNN predictor
+
+Use convenience wrapper `tune.knn` provided by the library `e1071` on the entire dataset to determine optimal value for the number of the nearest neighbors 'k' to be used in KNN classifier.  Consider our observations from week 9 problem set when choosing range of values of `k` to be evaluated by `tune.knn`.  Setup resampling procedure similar to that used above for support vector classifier that will repeatedly: a) split WiFi localization dataset into training and test, b) use `tune.knn` on training data to determine optimal `k`, and c) use `k` estimated by `tune.knn` to make KNN classifications on test data.  Report and discuss distributions of test errors from this procedure and selected values of `k`, compare them to those obtained for random forest and support vector classifier above.
+
+```{r}
+#knn on entire dataset
+features = wifiLocDat[,-which(names(wifiLocDat) %in% c("Loc3"))]
+class = wifiLocDat$Loc3
+set.seed(1)
+ktune = tune.knn(y=class, x=features, k = 1:20)
+summary(ktune)
+```
+**Using the entire dataset, k=3 gives the best error.**
+
+```{r}
+#knn on repeated train/test sets
+bestk = NULL
+accu = NULL
+for( i in 1:20 ){
+
+   train=sort(sample(nrow(wifiLocDat),floor(0.8*nrow(wifiLocDat))))
+   
+   #split data into training and test sets
+   dtrain = subset(wifiLocDat[train,])
+   classTrain = dtrain[,which(names(wifiLocDat) %in% c("Loc3"))]
+   featTrain = dtrain[,-which(names(wifiLocDat) %in% c("Loc3"))]
+   
+   dtest = subset(wifiLocDat[-train,])
+   classTest = dtest[,which(names(wifiLocDat) %in% c("Loc3"))]
+   featTest = dtest[,-which(names(wifiLocDat) %in% c("Loc3"))]
+   
+   ktune = tune.knn(y=classTrain, x=featTrain, k = 1:20)
+
+   knnRes = knn(featTrain,featTest,classTrain,k=ktune$best.parameters$k)
+   tab = table(classTest,knnRes)
+   
+   bestk = c(bestk,ktune$best.parameters$k)
+   accu = c(accu,sum(diag(tab))/sum(tab))
+   
+}
+```
+
+```{r}
+#check last run
+P_bi = ifelse(knnRes==TRUE,1,0)
+Loc3_bi = ifelse(classTest==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+
+```{r}
+sort(unique(bestk))
+mean(accu)
+plot(bestk,accu)
+```
+**The best k values varies from 1 to 5, but 1 has the most occurrence.  The accuracies are in a narrow margin of 0.975 to 0.993.  These values are good and comparable to random forest.**
+
+# Problem 4 (20 points): SVM with radial kernel
+
+## Sub-problem 4a (10 points): impact of $gamma$ on classification surface
+
+*Plot* SVM model fit to the WiFi localization dataset using (for the ease of plotting) *only the first and the second attributes* as predictor variables, `kernel="radial"`, `cost=10` and `gamma=5` (see ISLR Ch.9.6.2 for an example of that done with a simulated dataset).  You should be able to see in the resulting plot the magenta-cyan (or, in more recent versions of `e1071` -- yellow-brown) classification boundary as computed by this model.  Produce the same kinds of plots using 0.5 and 50 as values of `gamma` also.  Compare classification boundaries between these three plots and describe how they are impacted by the change in the value of `gamma`.  Can you trace it back to the role of `gamma` in the equation introducing it with the radial kernel in ISLR?
+
+```{r}
+#svm
+c = 10
+g = 0.5
+svmfit = svm(Loc3~WiFi1+WiFi2,data=wifiLocDat,kernel="radial",cost=c,scale=FALSE,gamma=g)
+summary(svmfit)
+plot(svmfit,wifiLocDat,WiFi1~WiFi2)
+
+P = predict(svmfit)
+table(acutal=wifiLocDat$Loc3,predicted=P)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+
+**The radial kernel produces much better results than the linear kernel from the previous problem.  The accuracy, TPR and TNR are very high.  Visually, we can also see the the predicted true region, which contains most of the red (actual true) points**
+
+```{r}
+#svm
+c = 10
+g = 5
+svmfit = svm(Loc3~WiFi1+WiFi2,data=wifiLocDat,kernel="radial",cost=c,scale=FALSE,gamma=g)
+summary(svmfit)
+plot(svmfit,wifiLocDat,WiFi1~WiFi2)
+
+P = predict(svmfit)
+table(acutal=wifiLocDat$Loc3,predicted=P)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+**With a gamma of 5, the accuracy, TPR and TNR are comparable to the gamma 0.5 model.  Yet, visually the predicted true region appears smaller than the gamma 0.5 model.**
+
+```{r}
+#svm
+c = 10
+g = 50
+svmfit = svm(Loc3~WiFi1+WiFi2,data=wifiLocDat,kernel="radial",cost=c,scale=FALSE,gamma=g)
+summary(svmfit)
+plot(svmfit,wifiLocDat,WiFi1~WiFi2)
+
+P = predict(svmfit)
+table(acutal=wifiLocDat$Loc3,predicted=P)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+```{r}
+plot(svmfit,wifiLocDat,WiFi1~WiFi2,xlim=c(-58.1,-57.9),ylim=c(-50.1,-49.9))
+
+```
+
+**Results from the gamma=50 model looks nearly identical to the results from the gamma=5 model.  However, the predicted true regions are not visible in the plot, even when zoomed into a single point.  So, it appears that a high gamma reduces the true regions to essentially to the data points themselves.  The reduction in region is evident in the gamma=5 model, and most pronounced in the gamma=50 model.**
+
+## Sub-problem 4b (10 points): test error for SVM with radial kernel
+
+Similar to how it was done above for support vector classifier (and KNN), set up a resampling process that will repeatedly: a) split the entire dataset (using all attributes as predictors) into training and test datasets, b) use `tune` function to determine optimal values of `cost` and `gamma` and c) calculate test error using these values of `cost` and `gamma`.  Consider what you have learned above about the effects of the parameters `cost` and `gamma` to decide on the starting ranges of their values to be evaluated by `tune`. Additionally, experiment with different sets of their values and discuss in your solution the results of it and how you would go about selecting those ranges starting from scratch.  Present resulting test error graphically, compare it to that of support vector classifier (with linear kernel), random forest and KNN classifiers obtained above and discuss results of these comparisons. 
+
+
+```{r}
+# tune cost by cross-validation:
+set.seed(1)
+tune.out = tune(svm, Loc3~WiFi1+WiFi2, data=wifiLocDat, kernel="radial", ranges=list(cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100, 1000),gamma=c(0.5,5,50)))
+summary(tune.out)
+#On the full data set without splits, the best cost is 10 and best gamma is 0.5
+```
+
+
+```{r}
+# denser grid around minimum:
+set.seed(1)
+tune.out.1 = tune(svm, Loc3~WiFi1+WiFi2, data=wifiLocDat, kernel="radial", ranges=list(cost=c(9.6,9.7,9.8,9.9,10,10.1),gamma=c(0.3,0.4,0.5,0.6,0.7)))
+summary(tune.out.1)
+```
+**With a denser grid, the best cost is 9.8 and best gamma is 0.5.  We can try to set the ranges near these values.**
+
+```{r}
+# best model:
+bestmod = tune.out.1$best.model
+summary(bestmod)
+P = predict(bestmod)
+tab = table(acutal=wifiLocDat$Loc3,predicted=P)
+tab
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+table(actual=P_bi,predicted=P_bi)
+```
+
+
+```{r}
+# repeat with train/test sets
+cost = NULL
+gamma = NULL
+accu = NULL
+for( i in 1:10 ){
+
+   train=sort(sample(nrow(wifiLocDat),floor(0.8*nrow(wifiLocDat))))
+   #split data into training and test sets
+   dtrain = subset(wifiLocDat[train,])
+   dtest = subset(wifiLocDat[-train,])
+   
+   dtune = tune(svm, Loc3~WiFi1+WiFi2, data=dtrain, kernel="radial", ranges=list(cost=c(0.3,1,3,9.8,27),gamma=c(0.04,0.5,1,5,25)))
+   bestmod = dtune$best.model
+   
+   P = predict(bestmod,dtest)
+   tab = table(acutal=dtest$Loc3,predicted=P)
+   
+   cost = c(cost,bestmod$cost)
+   gamma = c(gamma,bestmod$gamma)
+   accu = c(accu,sum(diag(tab))/sum(tab))
+}
+```
+
+
+```{r eval=FALSE}
+#check results from last run
+summary(dtune)
+summary(bestmod)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(dtest$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+
+tab
+plot(bestmod,wifiLocDat,WiFi1~WiFi2)
+```
+
+```{r}
+sort(unique(cost))
+sort(unique(gamma))
+mean(accu)
+plot(cost,accu)
+plot(gamma,accu)
+```
+
+**Running 10 iterations of tune resulted in the optimal parameters above.  The accuracies vary from 0.95 to 0.97.  A plot of the model with these parameters are shown below.  By just using 2 predictors, this model has an accuracy that is on par with the random forest and knn models.**
+
+
+```{r}
+#svm
+c = 0.2
+g = 1
+svmfit = svm(Loc3~WiFi1+WiFi2,data=wifiLocDat,kernel="radial",cost=c,scale=FALSE,gamma=g)
+summary(svmfit)
+plot(svmfit,wifiLocDat,WiFi1~WiFi2)
+
+P = predict(svmfit)
+table(acutal=wifiLocDat$Loc3,predicted=P)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+
+
+# Extra 5 points problem: SVM with polynomial kernel
+
+Repeat what was done above (plots of decision boundaries for various interesting values of tuning parameters and test error for their best values estimated from training data) using `kernel="polynomial"`.   Determine ranges of `coef0`, `degree`, `cost` and `gamma` to be evaluated by `tune`.  Present and discuss resulting test error and how it compares to linear and radial kernels and those of random forest and KNN.
+
+```{r eval=FALSE}
+#svm on entire data set
+c = 1
+g = 1
+d = 2
+co = 1
+svmfit = svm(Loc3~WiFi1+WiFi2,data=wifiLocDat,kernel="polynomial",cost=c,scale=FALSE,gamma=g,degree=d,coef0=co)
+summary(svmfit)
+plot(svmfit,wifiLocDat,WiFi1~WiFi2)
+
+P = predict(svmfit)
+table(acutal=wifiLocDat$Loc3,predicted=P)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(wifiLocDat$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+```
+
+```{r svm_poly, warning=FALSE}
+set.seed(1)
+train=sort(sample(nrow(wifiLocDat),floor(0.8*nrow(wifiLocDat))))
+#split data into training and test sets
+dtrain = subset(wifiLocDat[train,])
+dtest = subset(wifiLocDat[-train,])
+
+dtune = tune(svm, Loc3~WiFi1+WiFi2, data=dtrain, kernel="polynomial", ranges=list(gamma=c(5,50),cost=c(1,10),degree=c(2,3),coef0=c(0,1)))
+bestmod = dtune$best.model
+
+P = predict(bestmod,dtest)
+tab = table(acutal=dtest$Loc3,predicted=P)
+```
+
+```{r svm_poly_prints}
+summary(dtune)
+summary(bestmod)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(dtest$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+
+tab
+plot(bestmod,wifiLocDat,WiFi1~WiFi2)
+```
+
+**The optimal parameters are listed above. The accuracy is about 95%, on par with random forest, knn, and radial kernal svm.**
+
+```{r svm_poly_2nd, eval=FALSE}
+##This takes too long to run
+set.seed(1)
+train=sort(sample(nrow(wifiLocDat),floor(0.8*nrow(wifiLocDat))))
+#split data into training and test sets
+dtrain = subset(wifiLocDat[train,])
+dtest = subset(wifiLocDat[-train,])
+
+dtune = tune(svm, Loc3~WiFi1+WiFi2, data=dtrain, kernel="polynomial", ranges=list(gamma=c(50,500,5000),cost=c(10,100),degree=c(1,2,3),coef0=c(0.001,0.01,0.1,1)))
+bestmod = dtune$best.model
+
+P = predict(bestmod,dtest)
+tab = table(acutal=dtest$Loc3,predicted=P)
+
+summary(dtune)
+summary(bestmod)
+
+P_bi = ifelse(P==TRUE,1,0)
+Loc3_bi = ifelse(dtest$Loc3==TRUE,1,0)  
+assess.prediction(Loc3_bi,P_bi)
+
+tab
+plot(bestmod,wifiLocDat,WiFi1~WiFi2)
+```
+
+

@@ -1,0 +1,233 @@
+---
+title: "CSCI E-63C: Week 5 Q&A session"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+library(leaps)
+library(glmnet)
+library(ISLR)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Questions
+
+* Past homework?
+* Past lectures?
+
+# This week homework
+
+Go over preface and questions
+
+# This week quiz
+
+Go over a question of your choice;  question 6 resulted in few questions in the past...
+
+# Learning something new every day...
+
+```{r}
+class(iris)
+dim(iris)
+iris[1:3,]
+class(iris[,"Species"])
+head(iris[,"Species"])
+head(iris$Species)
+if ( FALSE ) {
+  # this will throw an error:
+  head(iris[,"Speciess"])
+}
+# this will return NULL:
+head(iris$Speciess)
+# What would this do:
+class(iris[1:3,"Speciess"])
+iris[1:3,"Speciess"]
+```
+
+# Chapter 6, Exercise 8
+
+*"In this exercise, we will generate simulated data, and will then use this data to perform best subset selection."*
+
+*"(a) Use the `rnorm()` function to generate a predictor $X$ of length $n = 100$, as well as a noise vector $\epsilon$ of length $n = 100$."*
+
+```{r}
+x <- rnorm(100)
+eps <- 1.0*rnorm(100)
+```
+
+*"(b) Generate a response vector $Y$ of length $n = 100$ according to the model $Y = \beta_0 + \beta_1X + \beta_2X^2 + \beta_3X^3 + \epsilon$, where $\beta_0$, $\beta_1$, $\beta_2$, and $\beta_3$ are constants of your choice."*
+
+```{r Ch6Ex8}
+beta <- rexp(4)
+y <- beta[1]+beta[2]*x+beta[3]*x^2+beta[4]*x^3+eps
+##y <- beta[1]+beta[2]*x^7+eps
+plot(x,y)
+```
+
+*"(c) Use the regsubsets() function to perform best subset selection in order to choose the best model containing the predictors $X, X^2, \ldots, X^{10}$. What is the best model obtained according to $C_p$, BIC, and adjusted $R^2$? Show some plots to provide evidence for your answer, and report the coefficients of the best model obtained. Note you will need to use the `data.frame()` function to create a single data set containing both $X$ and $Y$."*
+
+*"(d) Repeat (c), using forward stepwise selection and also using backwards stepwise selection. How does your answer compare to the results in (c)?"*
+
+```{r}
+dfTmp <- data.frame(Y=y,X1=x)
+for ( iTmp in 2:10 ) {
+  dfTmp[,paste0("X",iTmp)] <- dfTmp[,"X1"]^iTmp
+}
+head(dfTmp)
+adjr2Res <- NULL
+bicRes <- NULL
+cpRes <- NULL
+for ( jSelect in c("exhaustive","backward", "forward") ) {
+  rsRes <- regsubsets(Y~.,dfTmp,nvmax=10,method=jSelect)
+  summary(rsRes)
+  adjr2Res <- cbind(adjr2Res,summary(rsRes)$adjr2)
+  bicRes <- cbind(bicRes,summary(rsRes)$bic)
+  cpRes <- cbind(cpRes,summary(rsRes)$cp)
+}
+old.par<-par(mfrow=c(1,3))
+matplot(1:dim(adjr2Res)[1],adjr2Res,type="b",pch=1:ncol(adjr2Res),lty=1)
+matplot(1:dim(bicRes)[1],bicRes,type="b",pch=1:ncol(bicRes),lty=1)
+matplot(1:dim(cpRes)[1],cpRes,type="b",pch=1:ncol(bicRes),lty=1)
+par(old.par)
+```
+
+*"(e) Now fit a lasso model to the simulated data, again using $X, X_2, \ldots, X^{10}$ as predictors. Use cross-validation to select the optimal value of $\lambda$. Create plots of the cross-validation error as a function of $\lambda$. Report the resulting coefficient estimates, and discuss the results obtained."*
+
+```{r}
+lassoRes <- glmnet(model.matrix(Y~.,dfTmp)[,-1],dfTmp$Y,alpha=1)
+lassoResCV <- cv.glmnet(model.matrix(Y~.,dfTmp)[,-1],dfTmp$Y,alpha=1,lambda=10^((-60:60)/20))
+plot(lassoResCV)
+predict(lassoResCV,type="coefficients",s=lassoResCV$lambda.1se)
+beta
+predict(lassoResCV,type="coefficients",s=lassoResCV$lambda.min)
+```
+
+*"(f) Now generate a response vector Y according to the model $Y = \beta_0 + \beta_7X^7 + \epsilon$, and perform best subset selection and the lasso. Discuss the results obtained."*
+
+See commented out code above
+
+# Chapter 6, Exercise 9
+
+*"In this exercise, we will predict the number of applications received using the other variables in the `College` data set."*
+
+
+```{r Ch6Ex9,fig.width=18,fig.height=18}
+head(College)
+dim(College)
+pairs(College)
+```
+
+*"(a) Split the data set into a training set and a test set."*
+
+```{r Ch6Ex9a}
+idxTrain <- sample(nrow(College),nrow(College)/2)
+```
+
+*"(b) Fit a linear model using least squares on the training set, and report the test error obtained."*
+
+```{r Ch6Ex9b}
+lmTmp <- lm(Apps~.,College[idxTrain,])
+old.par <- par(mfrow=c(2,2))
+plot(lmTmp)
+par(old.par)
+summary(lmTmp)
+mean((College[-idxTrain,]$Apps-predict(lmTmp,newdata=College[-idxTrain,]))^2)
+hist(College[,'Apps'])
+hist(log10(College[,'Apps']))
+```
+
+More work to be done here - Apps probably has to be log-transformed, to be less skewed, what about other variables? Accept seems to be very highly correlated with Apps, but this is just direct consequence of the fact that the more applications are submitted, the more are accepted, college size, etc.  Do we need to adjust for college size so that it is not the main property we are discovering?
+
+*"(c) Fit a ridge regression model on the training set, with $\lambda$ chosen by cross-validation. Report the test error obtained."*
+
+```{r Ch6Ex9c}
+mmTmp <- model.matrix(Apps~.,College)
+head(mmTmp)
+# get rid of intercept:
+glmnetRidgeResCV <- cv.glmnet(mmTmp[idxTrain,-1], College[idxTrain,"Apps"], alpha=0)
+plot(glmnetRidgeResCV)
+glmnetRidgeResCV$lambda.1se
+mean((College[-idxTrain,]$Apps-predict(glmnetRidgeResCV,mmTmp[-idxTrain,-1]))^2)
+```
+
+*"(d) Fit a lasso model on the training set, with $\lambda$ chosen by crossvalidation. Report the test error obtained, along with the number of non-zero coefficient estimates."*
+
+```{r Ch6Ex9d}
+# get rid of intercept:
+glmnetLassoResCV <- cv.glmnet(mmTmp[idxTrain,-1], College[idxTrain,"Apps"], alpha=1)
+plot(glmnetLassoResCV)
+glmnetLassoResCV$lambda.1se
+mean((College[-idxTrain,]$Apps-predict(glmnetLassoResCV,mmTmp[-idxTrain,-1]))^2)
+```
+
+*"(e) Fit a PCR model on the training set, with M chosen by crossvalidation. Report the test error obtained, along with the value of M selected by cross-validation."*
+
+*"(f) Fit a PLS model on the training set, with M chosen by crossvalidation. Report the test error obtained, along with the value of M selected by cross-validation."*
+
+*"(g) Comment on the results obtained. How accurately can we predict the number of college applications received? Is there much difference among the test errors resulting from these five approaches?"*
+
+# Chapter 6, Exercise 10
+
+*"We have seen that as the number of features used in a model increases, the training error will necessarily decrease, but the test error may not. We will now explore this in a simulated data set."*
+
+```{r Ch6Ex10}
+predict.regsubsets <- function(object, newdata, id, ...){
+  form=as.formula(object$call[[2]])
+  mat=model.matrix(form,newdata)
+  coefi=coef(object,id=id)
+  xvars=names(coefi)
+  mat[,xvars ]%*%coefi
+}
+###for ( iSim in 1:20 ) {
+x <- matrix(rnorm(20*1000),ncol=20)
+colnames(x) <- paste0("X",1:ncol(x))
+beta <- rexp(21) # plus one for intercept
+beta[-sample(length(beta),length(beta),replace=T)] <- 0
+y <- cbind(rep(1,nrow(x)),x) %*% beta + rnorm(dim(x)[1])
+dfTmp <- data.frame(Y=y,x)
+trainIdx <- sample(dim(x)[1],100)
+rsRes <- regsubsets(Y~.,dfTmp[trainIdx,],nvmax=20)
+testErr <- numeric()
+betaDiffs2 <- numeric()
+for ( iTmp in 1:20 ) {
+  testErr[iTmp] <- mean((dfTmp[-trainIdx,"Y"] - predict(rsRes,dfTmp[-trainIdx,],id=iTmp))^2)
+  betaR <- numeric(length(beta))
+  names(betaR) <- c("(Intercept)",paste0("X",1:(length(beta)-1)))
+  betaR[names(coef(rsRes,id=iTmp))] <- coef(rsRes,id=iTmp)
+  betaDiffs2[iTmp] <- sum((beta-betaR)^2)
+}
+old.par <- par(mfrow=c(1,3))
+plot(summary(rsRes)$rss/length(trainIdx),log="y",type="b")
+points(testErr,col="red",pch=2,type="b")
+abline(v=sum(beta!=0),lty=2)
+plot(sort(abs(beta),decreasing=T))
+#plot(beta,betaR)
+plot(betaDiffs2)
+par(old.par)
+###}
+```
+
+# Chapter 5, Exercise 8
+
+```{r Ch5Ex8}
+#set.seed (1)
+y=rnorm (100)
+x=rnorm (100)
+y=x-2*x^2+rnorm(100)
+plot(x,y)
+dfTmp <- data.frame(Y=y,X1=x)
+for ( iTmp in 2:4 ) {
+  dfTmp[,paste0("X",iTmp)] <- dfTmp[,"X1"]^iTmp
+}
+for ( iTmp in 2:5 ) {
+  tmpDiffs <- NULL
+  for ( jTmp in 1:nrow(dfTmp) ) {
+    lmTmp <- lm(Y~.,dfTmp[-jTmp,1:iTmp])
+    tmpDiffs <- c(tmpDiffs,dfTmp[jTmp,'Y']-predict(lmTmp,newdata=dfTmp[jTmp,]))
+  }
+  cat(iTmp-1,mean(tmpDiffs^2),sd(tmpDiffs^2),fill=T)
+  #print(summary(lm(Y~.,dfTmp[,1:iTmp])))
+}
+```
+

@@ -1,0 +1,513 @@
+---
+title: "CSCI E-63C: Week 7 -- Midterm Exam"
+output:
+  html_document:
+    toc: true
+---
+
+# Introduction
+
+*The goal of the midterm exam is to apply some of the methods covered in our course by now to a new dataset.  We will work with the data characterizing real estate valuation in New Taipei City, Taiwan that is available at [UCI ML repository](https://archive.ics.uci.edu/ml/datasets/Real+estate+valuation+data+set) as well as at this course website on canvas. The overall goal will be to use data modeling approaches to understand which attributes available in the dataset influence real estate valuation the most.  The outcome attribute (Y -- house price of unit area) is inherently continuous, therefore representing a regression problem.*
+
+*For more details please see dataset description available at UCI ML or corresponding [HTML file](https://canvas.harvard.edu/files/8396679/download?download_frd=1) in this course website on canvas.  For simplicity, clarity and to decrease your dependency on the network reliability and UCI ML or canvas website availability during the week that you will be working on this project you are advised to download data made available in this course canvas website to your local folder and work with this local copy. The dataset at UCI ML repository as well as its copy on our course canvas website is made available as an Excel file [Real estate valuation data set.xlsx](https://canvas.harvard.edu/files/8396680/download?download_frd=1) -- you can either use `read_excel` method from R package `readxl` to read this Excel file directly or convert it to comma or tab-delimited format in Excel so that you can use `read.table` on the resulting file with suitable parameters (and, of course, remember to double check that in the end what you have read into your R environment is what the original Excel file contains).*
+
+*Finally, as you will notice, the instructions here are terser than in the previous weekly problem sets. We expect that you use what you've learned in the class to complete the analysis and draw appropriate conclusions based on the data.  The approaches that you are expected to apply here have been exercised in the preceeding weeks -- please feel free to consult your submissions and/or official solutions as to how they have been applied to different datasets.  As always, if something appears to be unclear, please ask questions -- we may change to private mode those that in our opinion reveal too many details as we see fit.*
+
+# Sub-problem 1: load and summarize the data (20 points)
+
+*Download and read in the data, produce numerical and graphical summaries of the dataset attributes, decide whether they can be used for modeling in untransformed form or any transformations are justified, comment on correlation structure and whether some of the predictors suggest relationship with the outcome.*
+
+```{r}
+library("readxl")
+df = read_xlsx("Real estate valuation data set.xlsx")
+df = as.data.frame(df[,-1])
+rownames(df) = df$No
+colnames(df) = make.names(colnames(df))
+head(df)
+```
+
+**All the data appears to be numerical.  There are 6 predictors and 1 dependent variable.**
+
+```{r}
+summary(df)
+```
+
+**The transaction dates seem quite narrow, with data only between 2013 and 2014.  The longitude also has a very narrow range at 121.xx**
+
+```{r,fig.width=12,fig.height=6}
+library(stringr)
+op <- par(mfrow=c(2,4),ps=16)
+for (n in colnames(df)){
+  hist(df[[n]],main="",xlab=str_trunc(n,15,"right"))
+}
+par(op)
+```
+
+**Histograms for each predictor are plotted above.  A majority of the data comes from units that are closer to an MRT station, less than 1000 meters, probably beacuse most housing units are built near MRT stations.  Most of the data does not appear to have a normal distribution, except for X5.latitude and Y.house.price.  The house price histogram indicates an outlier unit that is above 100 x 10000NTD/Ping.**
+
+```{r,fig.width=12,fig.height=12}
+library(GGally)
+ggpairs(df,progress=F)
+```
+
+**The pairs plots indicates significant correlations (above 0.5) for most the predictors to the price.  House age and transaction date appears to have a lower correlation to the price.**
+
+```{r,fig.width=10,fig.height=10}
+ggcorr(  df[sapply(df, function(x) is.numeric(x))]  , c("pairwise", "spearman")  , name = "spearman (linear)")
+```
+
+**The colored correlations plots also shows similar results, with darker shades (higher correlation) for most of the predictors except for X2.house.age and X1.transaction.date, which has lighter shades (lower correlation).**
+
+**We can check if a log transfrom can improve the correlations.**
+```{r,fig.width=12,fig.height=12}
+df2 = log(df+1)
+library(GGally)
+ggpairs(df2,progress=F)
+```
+
+**A log transform appears to improve the correlations.  The correlation for distance to MRT and price increased from 0.674 to 0.761.  This increase suggests that the price expoentially increases as it is closer to the MRT.  The plot between price and distance also changed from more of curve to a linear relationship.**
+
+```{r,fig.width=10,fig.height=10}
+ggcorr(  df[sapply(df2, function(x) is.numeric(x))]  , c("pairwise", "spearman")  , name = "spearman (linear)")
+```
+**The colored correlation plot of the transformed data looks very similar to the un-transformed data.**
+
+```{r,fig.width=12,fig.height=6}
+library(stringr)
+op <- par(mfrow=c(2,4),ps=16)
+for (n in colnames(df2)){
+  hist(df2[[n]],main="",xlab=str_trunc(n,15,"right"))
+}
+par(op)
+```
+
+**With log transformation, the histograms appear to have a more normal distribution.  The outlier in Y.house.price is now much more within the normal distribution.  The un-transformed X3.distance appears to have an exponential distribution.  With the log transformation, it has a more normal distribution.**
+
+# Sub-problem 2: multiple linear regression model (25 points)
+
+*Using function `lm` fit model of outcome as linear function of all predictors in the dataset. Present and discuss diagnostic plots. Report 99% confidence intervals for model parameters that are statistically significantly associated with the outcome and discuss directions of those associations. Obtain mean prediction (and corresponding 90% confidence interval) for a new observation with each attribute set to average of the observations in the dataset. Describe evidence for potential collinearity among predictors in the model.*
+
+```{r}
+fit = lm(Y.house.price.of.unit.area~.,df)
+summary(fit)
+```
+**Un-transformed: the PR(>|t|) values indicate that almost all the predictors are significant, with values less than 0.05, except for x6.longitude, which has a value of 0.79820.  The p-value for the F-statistic is extremely low, so the model should be significant.**
+
+```{r}
+fit2 = lm(Y.house.price.of.unit.area~.,df2)
+summary(fit2)
+```
+**Log-transformed: the PR(>|t|) values indicate that all the predictors are significant, with values less than 0.05.  The p-value for the F-statistic is extremely low, so the model should be significant.  We should use the log-transformed model.**
+
+```{r}
+confint(fit,level=.99)
+```
+**Un-transformed: the confidence intervals also indicate that X6.longitude is not significant in this model.  Because the range goes from negative to positive, it is possible that the coefficient for this predictor is zero.  So, we cannot reject the null hypothesis that X6.longitude coefficient can be zero.  For the other predictors, their 99% confidence intervals do not cross zero, so they are significant.**
+
+```{r}
+confint(fit2,level=.99)
+```
+**Log-transformed: for all the predictors, their 99% confidence intervals do not cross zero, so they are significant. So, we should use the log-transformed model.**
+
+```{r}
+library(car)
+vif(fit)
+```
+**Un-transformed: the two highest VIF are X3.distance.to.the.nearest.MRT at 4.32 and X6.longitude at 2.92.  Correlations between X6.longitude and X3.distance.to.the.nearest.MRT is high at -0.806.  So as the linear model shows, X6.longitude may be too colinear with X3.distance, such that if both of them are in the model, one of them would not be significant.  In the model, X6.longitude is not significant.**
+
+```{r}
+vif(fit2)
+```
+
+**Log-transformed, the VIF for X3 and X6 are greatly reduced.  Interestingly, in the log transformed model, X3 and X6 has lower correlation at -0.65.  So in this case, the log transformation helps to reduce colinearly between variables.  The issues with colinearity are reduced with the log-transformed model.**
+
+```{r,fig.width=12,fig.height=12}
+old.par <- par(mfrow=c(2,2))
+plot(fit2)
+par(old.par)
+```
+**The diagnostic plot shows that the model is mostly good.  The Residuals vs Fitted plot shows that the residuals are balanced across the zero line.  The Scale-Location plot shows that the standardized residuals are mostly uniform across the fitted values.  The Residuals vs Leverage plot shows that all the data are lower than 0.5 for Cook's distance, so there are no high leverage points of concern.  The QQ plot show that the residuals mostly follow the dotted line, except at the ends, where they diverege.  So, for the most part, the residuals have a normal distribution.**
+
+```{r}
+avg = as.data.frame(as.list(colMeans(df2)))
+avg
+```
+```{r}
+predict(fit2,newdata=avg,interval='confidence', level = .90)
+```
+
+**The predicted value of Y.house.price appears identical to the actual value.  This sameness is expected, as the least squares method is designed such that the "fitted line" passes through the mean values of all the variables at a single point.**
+
+# Sub-problem 3: choose optimal models by exhaustive, forward and backward selection (20 points)
+
+*Use `regsubsets` from library `leaps` to choose optimal set of variables for modeling real estate valuation and describe differences and similarities between attributes deemed most important by these approaches.*
+
+```{r}
+library(leaps)
+
+summaryMetrics <- NULL
+whichAll <- list()
+for ( myMthd in c("exhaustive", "backward", "forward", "seqrep") ) {
+  # 15 because three categorical attributes are represented by dummy variables:
+  rsRes <- regsubsets(Y.house.price.of.unit.area~.,df2,method=myMthd,nvmax=15)
+  summRes <- summary(rsRes)
+  whichAll[[myMthd]] <- summRes$which
+  for ( metricName in c("rsq","rss","adjr2","cp","bic") ) {
+    summaryMetrics <- rbind(summaryMetrics,
+      data.frame(method=myMthd,metric=metricName,
+                nvars=1:length(summRes[[metricName]]),
+                value=summRes[[metricName]]))
+  }
+}
+ggplot(summaryMetrics,aes(x=nvars,y=value,shape=method,colour=method)) + geom_path() + geom_point() + facet_wrap(~metric,scales="free") +   theme(legend.position="top")+theme_bw()
+
+```
+**The plots above indicate that using all the variables should be used for best results.  Interestingly, at 4 variables, the performance of seqrep abruptly decreases, but follows the others at all other variable counts.**
+
+```{r,fig.width=8,fig.height=8}
+old.par <- par(mfrow=c(2,2),ps=16,mar=c(5,8,2,1))
+for ( myMthd in names(whichAll) ) {
+  image(1:nrow(whichAll[[myMthd]]),
+        1:ncol(whichAll[[myMthd]]),
+        whichAll[[myMthd]],xlab="N(vars)",ylab="",
+        xaxt="n",yaxt="n",breaks=c(-0.5,0.5,1.5),
+        col=c("white","gray"),main=myMthd)
+  axis(1,1:nrow(whichAll[[myMthd]]),str_trunc(rownames(whichAll[[myMthd]]),3,"right"))
+  axis(2,1:ncol(whichAll[[myMthd]]),str_trunc(colnames(whichAll[[myMthd]]),13,"right"),las=2)
+}
+par(old.par)
+```
+**Plots of variable membership for all except segqrep have indentical importance ordering of variables.  This sameness is reflected in the rsq,rss,etc diagnostic plots.  For seqrep, the arrangement is identicaly to others for almost all the variables, the only difference is X4.number.of.convience.stores, which at 4 variables, X4 is added and X5.latitude is removed.  For all the other cases, X4 only appears at 6 variables.  This difference at 4 variables is reflected in the rsq,rss,etc diagnostic plots.**
+
+# Sub-problem 4: optimal model by resampling (20 points)
+
+*Use cross-validation or any other resampling strategy of your choice to estimate test error for models with different numbers of variables.  Compare and comment on the number of variables deemed optimal by resampling versus those selected by `regsubsets` in the previous task.*
+
+```{r predictRegsubsets}
+predict.regsubsets <- function (object, newdata, id, ...){
+  form=as.formula(object$call [[2]])
+  mat=model.matrix(form,newdata)
+  coefi=coef(object,id=id)
+  xvars=names (coefi)
+  mat[,xvars] %*% coefi
+}
+```
+
+```{r,fig.width=12,fig.height=6}
+dfTmp <- NULL
+whichSum <- array(0,dim=c(6,7,4),
+  dimnames=list(NULL,colnames(model.matrix(Y.house.price.of.unit.area~.,df2)),
+      c("exhaustive", "backward", "forward", "seqrep")))
+# Split data into training and test 30 times:
+nTries <- 30
+for ( iTry in 1:nTries ) {
+  bTrain <- sample(rep(c(TRUE,FALSE),length.out=nrow(df2)))
+  # Try each method available in regsubsets
+  # to select the best model of each size:
+  for ( jSelect in c("exhaustive", "backward", "forward", "seqrep") ) {
+    rsTrain <- regsubsets(Y.house.price.of.unit.area~.,df2[bTrain,],nvmax=15,method=jSelect)
+    # Add up variable selections:
+    whichSum[,,jSelect] <- whichSum[,,jSelect] + summary(rsTrain)$which
+    # Calculate test error for each set of variables
+    # using predict.regsubsets implemented above:
+    for ( kVarSet in 1:6 ) {
+      # make predictions:
+      testPred <- predict(rsTrain,df2[!bTrain,],id=kVarSet)
+      # calculate MSE:
+      mseTest <- mean((testPred-df2[!bTrain,"Y.house.price.of.unit.area"])^2)
+      # add to data.frame for future plotting:
+      dfTmp <- rbind(dfTmp,data.frame(sim=iTry,sel=jSelect,vars=kVarSet,
+      mse=c(mseTest,summary(rsTrain)$rss[kVarSet]/sum(bTrain)),trainTest=c("test","train")))
+    }
+  }
+}
+# plot MSEs by training/test, number of 
+# variables and selection method:
+ggplot(dfTmp,aes(x=factor(vars),y=mse,colour=sel)) + geom_boxplot()+facet_wrap(~trainTest)+theme_bw()
+```
+**The plot above indicates that the test set errors are slightly above the train set errors.  For the test set, the entire MSE range is from about 0.03 to 0.073.  For the train set, this range is about 0.025 to .068.  The plots for both set shows a similar pattern, with highest error at 1 variable, to progressively lower error with more variables, with the lowest errors at 6 variables.  The results for each method (except for seqrep) looks nearly identical.  Given that the mean log(house price) is 3.59687, errors of .03 to 0.07 translates to about 1%-2% of the mean, which is fairly good.**
+
+```{r,fig.width=8,fig.height=8}
+old.par <- par(mfrow=c(2,2),ps=16,mar=c(5,8,2,1))
+for ( myMthd in dimnames(whichSum)[[3]] ) {
+  tmpWhich <- whichSum[,,myMthd] / nTries
+  image(1:nrow(tmpWhich),1:ncol(tmpWhich),tmpWhich,
+        xlab="N(vars)",ylab="",xaxt="n",yaxt="n",main=myMthd,
+        breaks=c(-0.1,0.1,0.25,0.5,0.75,0.9,1.1),
+        col=c("white","gray90","gray75","gray50","gray25","gray10"))
+  axis(1,1:nrow(tmpWhich),str_trunc(rownames(tmpWhich),3,"right"))
+  axis(2,1:ncol(tmpWhich),str_trunc(colnames(tmpWhich),13,"right"),las=2)
+}
+par(old.par)
+```
+
+**The grayscale plots show very little variation across the resampling iterations of training data.  Almost all the bars are solid black, which indicates just about every iteration selected the same arrangement of variables.  The overall plot pattern is identical to the previous results, where variable selection was based on the entire dataset.**
+
+**Both selection by entire dataset and by resampling into test/train datasets produced the same conclusion, that using all the variables produces the best results.**
+
+# Sub-problem 5: variable selection by lasso (15 points)
+
+*Use regularized approach (i.e. lasso) to model property valuation.  Compare resulting models (in terms of number of variables and their effects) to those selected in the previous two tasks (by `regsubsets` and resampling), comment on differences and similarities among them.*
+
+```{r,fig.width=12,fig.height=12}
+library(glmnet)
+
+old.par <- par(mfrow=c(2,2),ps=16)
+
+# -1 to get rid of intercept that glmnet knows to include:
+x = model.matrix(Y.house.price.of.unit.area~.,df2)[,-1]
+head(x)
+y = df2[,"Y.house.price.of.unit.area"]
+ridgeRes = glmnet(x,y,alpha=1)
+
+library(plotmo)
+plot(ridgeRes, label = TRUE)
+plot(ridgeRes, label = TRUE, ylim=c(-0.5, 0.5))
+plot(ridgeRes, label = TRUE, xlim = c(0,0.5), ylim=c(-0.5, 0.5))
+plot(ridgeRes, label = TRUE, xlim = c(100,200), ylim=c(-.02, .02)) 
+
+par(old.par)
+```
+
+**With lasso regularization, moving from high regularization to low regularization, the coefficients become non-zero in the following order: X3,X5,X6,X2,X4,X1.  This order should reflect their importance, with the 1st one (X3 distance to MRT) being most important.  The ordering from lasso is slightly diffrent to that from regsubsets and resampling, which has the order of X3,X5,X2,X1,X6,X4.  In both cases, X3 and X5 are most important, but the ones afterward are presented in different orders.  So, adding regularization appears to change the effects of the less important coefficients.**
+
+**Due to orders of magnitudes differences in coefficients (e.g. from lm regression, X1 is 340, X4 is 0.05), the lasso coefficient plots may seem at first to show that some coefficients are always zero, which is not the case.  The plots are zoomed in to show that coefficients such as X3 are non-zero and are important.**
+
+
+```{r,fig.width=6,fig.height=6}
+cvRidgeRes <- cv.glmnet(x,y,alpha=1)
+plot(cvRidgeRes)
+cvRidgeRes$lambda.min
+cvRidgeRes$lambda.1se
+predict(ridgeRes,type="coefficients",s=cvRidgeRes$lambda.min)
+predict(ridgeRes,type="coefficients",s=cvRidgeRes$lambda.1se)
+# and with lambda's other than default:
+cvRidgeRes <- cv.glmnet(x,y,alpha=1,lambda=exp(-700:200*0.01))
+plot(cvRidgeRes)
+```
+
+**Output of cv.glmnet shows MSE is minimized at lambda = 0.001193214 (or log(lambda) = -6.731105).  At 1sd from MSE, the lambda = 0.04093284 (or log(lambda) = -3.195823).  At both lambdas, all coefficients are nonzero.  MSE maxes out at 0.15, when log(lambda) is greater than about -1, lambda = exp(-1) = 0.04, where only 1 coefficient is nonzero.**
+
+```{r}
+lassoCoefCnt <- 0
+lassoMSE <- NULL
+for ( iTry in 1:30 ) {
+  bTrain <- sample(rep(c(TRUE,FALSE),length.out=nrow(x)))
+  cvLassoTrain <- cv.glmnet(x[bTrain,],y[bTrain],alpha=1)
+  lassoTrain <- glmnet(x[bTrain,],y[bTrain],alpha=1)
+  lassoTrainCoef <- predict(lassoTrain,type="coefficients",s=cvLassoTrain$lambda.1se)
+  lassoCoefCnt <- lassoCoefCnt + (lassoTrainCoef[-1,1]!=0)
+  lassoTestPred <- predict(lassoTrain,newx=x[!bTrain,],s=cvLassoTrain$lambda.1se)
+  lassoMSE <- c(lassoMSE,mean((lassoTestPred-y[!bTrain])^2))
+}
+mean(lassoMSE)
+quantile(lassoMSE,c(.025,.975))
+lassoCoefCnt
+```
+
+**Using lasso with resampling, X3,X5 appears at all 30 iterations, X1 is only apparent in about half of them, and the others are in between.  As with the lasso on the entire data set, X3 and X5 appear to be most important, and X1 is least important.**
+
+# Extra points problem: using higher order terms (10 points)
+
+*Evaluate the impact of adding non-linear terms to the model.  Describe which terms, if any, warrant addition to the model and what is the evidence supporting their inclusion.  Evaluate, present and discuss the effect of their incorporation on model coefficients and test error estimated by resampling.*
+
+**pairwise combinations are added to the model**
+
+```{r}
+#add pairs
+#double for loop to make all the pairs
+df_pairs = data.frame(matrix(nrow=nrow(df2), ncol=0))
+for (m in 1:(length(df2)-2)){
+  for (n in (m+1):(length(df2)-1)){
+    df_pairs[(paste(str_trunc(names(df2[m]),2,ellipsis=""),"_",str_trunc(names(df2[n]),2,ellipsis=""),sep = ""))] = df2[m] * df2[n]
+  }
+}
+df_temp = cbind(df2,df_pairs)
+#length(df_temp)
+#head(df_temp)
+```
+
+```{r}
+#rename df
+dfY = df_temp
+names(dfY)[names(dfY) == "Y.house.price.of.unit.area"] <- "Y"
+```
+
+```{r}
+#reorder from most cor to least
+x = cor(dfY,dfY$Y)
+ord = order(abs(x),decreasing = TRUE)
+#x[ord,]
+dfY = dfY[ord]
+head(dfY)
+```
+
+```{r}
+fit3 = lm(Y~.,dfY)
+summary(fit3)
+```
+
+**Some variables are NA.  These variables are removed in the next model below**
+```{r}
+fit4 = lm(Y~.,dfY[,!(names(dfY) %in% c("X6.longitude","X1_X6","X1.transaction.date"))])
+#,"X3.distance.to.the.nearest.MRT.station","X2_X3","X4.number.of.convenience.stores","X3_X4","X2_X4","X2.house.age","X1_X2","X2_X6","X2_X5"))])
+summary(fit4)
+```
+
+**The model appears to look better, with a fairly high Rsq, and all Pr(>|t|) less than 0.05.  However, many of the original terms, except for X5, are removed from the model.**
+
+```{r}
+vif(fit4)
+```
+
+**All the VIF's are very high, so there is high colinearity risk.  The model should not be used.  We can try scaling to see if that helps.**
+
+```{r fig.width=12,fig.height=6}
+op = par(mfrow=c(1,2))
+
+name = "unscaled"
+
+for(i in 1:2){
+  #read data, log transform them
+  df = read_xlsx("Real estate valuation data set.xlsx")
+  df = as.data.frame(df[,-1])
+  rownames(df) = df$No
+  colnames(df) = make.names(colnames(df))  
+  df = log(df+1)
+  
+  if(i==2){
+    #scale
+    df[-7] = scale(df[-7])
+    name = "scaled"
+  }
+  
+  #double for loop to make all the pairs
+  df_pairs = data.frame(matrix(nrow=nrow(df), ncol=0))
+  for (m in 1:(length(df)-2)){
+    for (n in (m+1):(length(df)-1)){
+      df_pairs[(paste(str_trunc(names(df[m]),2,ellipsis=""),"_",str_trunc(names(df[n]),2,ellipsis=""),sep = ""))] = df[m] * df[n]
+    }
+  }
+  
+  df = cbind(df,df_pairs)
+  
+  #reorder from most cor to least
+  x = cor(df,df$Y)
+  ord = order(abs(x),decreasing = TRUE)
+  x[ord,]
+  df = df[ord]
+
+  #metrics
+  df_pred = df[-1]
+  corr = c(cor((df_pred)))
+  hist(corr, main = paste("histogram of correlations,", name, "predictors") )
+  #print(paste(name, "mean", mean(corr), "sd", sd(corr) ))
+}
+
+dfScal = df
+names(dfScal)[names(dfScal) == "Y.house.price.of.unit.area"] <- "Y"
+
+par(op)
+```
+
+**Scaling appears to reduce correlations between predictors.  A quick data comparison between scaled and non-scaled data is shown below.**
+
+```{r}
+#unscaled
+head(dfY)
+#scaled
+head(dfScal)
+```
+
+```{r}
+fit5 = lm(Y~.,dfScal)
+summary(fit5)
+```
+**With scaling, all the variables have outputs, and more appear to be significant.  There are still many non-significant values, like X1_X5**
+
+```{r}
+vif(fit5)
+```
+**VIF is high for many, like X6.longitude, so there are colinearity issues when all variables are used.**
+
+```{r}
+confint(fit5,level=.99)
+```
+**The confidence interval for many variables, like X1_X5, passes through zero, and are not significant.**
+
+**We try to select coefficients by resampling into train/test sets.**
+```{r,fig.width=12,fig.height=6}
+dfTmp <- NULL
+whichSum <- array(0,dim=c(21,22,4),
+  dimnames=list(NULL,colnames(model.matrix(Y~.,dfScal)),
+      c("exhaustive", "backward", "forward", "seqrep")))
+# Split data into training and test 30 times:
+nTries <- 30
+for ( iTry in 1:nTries ) {
+  bTrain <- sample(rep(c(TRUE,FALSE),length.out=nrow(dfScal)))
+  # Try each method available in regsubsets
+  # to select the best model of each size:
+  for ( jSelect in c("exhaustive", "backward", "forward", "seqrep") ) {
+    rsTrain <- regsubsets(Y~.,dfScal[bTrain,],nvmax=30,method=jSelect)
+    # Add up variable selections:
+    whichSum[,,jSelect] <- whichSum[,,jSelect] + summary(rsTrain)$which
+    # Calculate test error for each set of variables
+    # using predict.regsubsets implemented above:
+    for ( kVarSet in 1:21 ) {
+      # make predictions:
+      testPred <- predict(rsTrain,dfScal[!bTrain,],id=kVarSet)
+      # calculate MSE:
+      mseTest <- mean((testPred-dfScal[!bTrain,"Y"])^2)
+      # add to data.frame for future plotting:
+      dfTmp <- rbind(dfTmp,data.frame(sim=iTry,sel=jSelect,vars=kVarSet,
+      mse=c(mseTest,summary(rsTrain)$rss[kVarSet]/sum(bTrain)),trainTest=c("test","train")))
+    }
+  }
+}
+# plot MSEs by training/test, number of 
+# variables and selection method:
+ggplot(dfTmp,aes(x=factor(vars),y=mse,colour=sel)) + geom_boxplot()+facet_wrap(~trainTest)+theme_bw()
+```
+
+**The error plots indicate slight improvement at about 12 variables, and any more after show little or no improvement.  Six of the pairwise combinations can help slightly with error reduction.**
+
+```{r,fig.width=8,fig.height=8}
+old.par <- par(mfrow=c(2,2),ps=10,mar=c(5,8,2,1))
+for ( myMthd in dimnames(whichSum)[[3]] ) {
+  tmpWhich <- whichSum[,,myMthd] / nTries
+  image(1:nrow(tmpWhich),1:ncol(tmpWhich),tmpWhich,
+        xlab="N(vars)",ylab="",xaxt="n",yaxt="n",main=myMthd,
+        breaks=c(-0.1,0.1,0.25,0.5,0.75,0.9,1.1),
+        col=c("white","gray90","gray75","gray50","gray25","gray10"))
+  axis(1,1:nrow(tmpWhich),str_trunc(rownames(tmpWhich),3,"right"))
+  axis(2,1:ncol(tmpWhich),str_trunc(colnames(tmpWhich),13,"right"),las=2)
+}
+par(old.par)
+```
+
+**Without pairwise combinations, the order of variables is resampling, which has the order of X3,X5,X2,X1,X6,X4.**
+
+**With pairwise combinations, the first few terms are still the same, which has the order of X3,X5,X2,X1,X6,X4...followed by pairwise terms.**
+
+```{r}
+fit6 = lm(Y~X5_X6+X4_X5+X4_X6+X3_X5+X3_X6+X1_X4+X4.number.of.convenience.stores+X3.distance.to.the.nearest.MRT.station+X6.longitude+X2.house.age+X1.transaction.date+X5.latitude,dfScal)
+summary(fit6)
+```
+
+**Using the grayscale coefficient plots, 6 of the more important pairs are added to the linear model, along with the original 6 coefficients.  All terms show significant below 0.05, which is good.**
+
+**The residual standard error is at 0.1868, slightly lower than 0.1961 from the 6 variable model.  The Rsquare is also slightly higher at 0.7644, compared with the 6 variable mode.**
+
+**6 variable model**
+Residual standard error: 0.1961 on 407 degrees of freedom
+Multiple R-squared:  0.7365,	Adjusted R-squared:  0.7326 
+F-statistic: 189.6 on 6 and 407 DF,  p-value: < 2.2e-16
+
+```{r}
+vif(fit6)
+```
+
+**Some VIF's are still high, like X3_X6 at 10.**
+
+**So, through scaling the predictors and adding of some pairwise combinations, we could slightly decrease our test errors.  However, these extra variables add colinearity risks, so it may be better to use only the original 6 variables without additional terms.**
+

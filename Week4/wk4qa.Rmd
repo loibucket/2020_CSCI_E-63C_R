@@ -1,0 +1,374 @@
+---
+title: "CSCI E-63C: Week 4 Q&A session"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Previous homeworks, lectures
+
+Question?  Comments? ...
+
+# Week 4 homework
+
+go over the examples in preface
+
+# Week 4 quiz
+
+
+
+# Statistical significance and predictive quality
+
+
+```{r sigVsPred,fig.width=8,fig.height=8}
+nTmp <- 100
+tmp2pvals <- NULL
+xyAll <- NULL
+for ( iSim in 1:100 ) {
+    x1 <- abs(rt(nTmp,1))
+    y1 <- -0.1-abs(rt(nTmp,1))
+    x2 <- rnorm(nTmp)
+    y2 <- 0.5+rnorm(nTmp)
+    xyAll <- rbind(xyAll,cbind(x1,y1,x2,y2))
+    tmp2pvals <- rbind(tmp2pvals, c(t.test(x1,y1)$p.value,t.test(x2,y2)$p.value))
+}
+old.par <- par(mfrow=c(2,2))
+boxplot(xyAll[,1:2],main="shifted inverted abs t")
+boxplot(xyAll[,1:2],main="shifted inverted abs t",ylim=c(-2,2))
+mtext("zoomed in")
+boxplot(xyAll[,3:4],main="shifted gaussian")
+plot(tmp2pvals,log='xy',main="t-test p-value",xlab="shifted inverted abs t",ylab="shifted gaussian")
+abline(0,1)
+par(old.par)
+```
+
+In this simulation p-values for a variable allowing for 100% accuracy (shifted inverted absolute of t-distribution with df=1) are often larger than those for a sample from two normal distributions with $\sigma=1$ and $\Delta\mu=0.5$ with corresponding Bayes error rate of about 40%
+
+# ISLR exercises
+
+## Ch.3.7 Ex.14
+
+"This problem focuses on the *collinearity* problem."
+
+"(a) Perform the following commands in R:""
+
+```{r}
+set.seed(1)
+x1=runif(100)
+x2=0.5*x1+rnorm(100)/10
+y=2+2*x1+0.3*x2+rnorm(100)
+```
+
+"The last line corresponds to creating a linear model in which `y` is a function of `x1` and `x2`. Write out the form of the linear model. What are the regression coefficients?"
+
+"(b) What is the correlation between `x1` and `x2`? Create a scatterplot displaying the relationship between the variables."
+
+```{r,fig.height=6,fig.width=6}
+plot(x1,x2)
+cor(x1,x2)
+cor(x1,x2,method="spearman")
+```
+
+"(c) Using this data, fit a least squares regression to predict `y` using `x1` and `x2`. Describe the results obtained. What are $\hat{\beta}_0$, $\hat{\beta}_1$, and $\hat{\beta}_2$? How do these relate to the true $\beta_0$, $\beta_1$, and $\beta_2$? Can you reject the null hypothesis H0 : $\beta_1 = 0$? How about the null hypothesis H0 : $\beta_2 = 0$?"
+
+```{r,fig.width=8,fig.height=8}
+lm(y~x1+x2)
+summary(lm(y~x1+x2))
+old.par <- par(mfrow=c(2,2),ps=16)
+plot(lm(y~x1+x2))
+par(old.par)
+```
+
+"(d) Now fit a least squares regression to predict `y` using only `x1`.  Comment on your results. Can you reject the null hypothesis  H0 : $\beta_1 = 0$?"
+
+```{r}
+lm(y~x1)
+summary(lm(y~x1))
+```
+
+"(e) Now fit a least squares regression to predict `y` using only `x2`.  Comment on your results. Can you reject the null hypothesis H0 : $\beta_1 = 0$?"
+
+```{r}
+lm(y~x2)
+summary(lm(y~x2))
+```
+
+"(f) Do the results obtained in (c)-(e) contradict each other? Explain your answer."
+
+```{r}
+anova(lm(y~x2),lm(y~x1+x2))
+anova(lm(y~x1),lm(y~x1+x2))
+```
+
+"(g) Now suppose we obtain one additional observation, which was unfortunately mismeasured."
+
+```{r}
+x1=c(x1, 0.1)
+x2=c(x2, 0.8)
+y=c(y,6)
+```
+
+"Re-fit the linear models from (c) to (e) using this new data. What effect does this new observation have on the each of the models? In each model, is this observation an outlier? A high-leverage point? Both? Explain your answers."
+
+```{r,fig.width=12,fig.height=4}
+clrsTmp <- c(rep(1,length(x1)-1),2)
+old.par <- par(mfrow=c(1,3),ps=16)
+plot(x1,x2,col=clrsTmp,pch=clrsTmp,cex=clrsTmp)
+plot(x1,y,col=clrsTmp,pch=clrsTmp,cex=clrsTmp)
+plot(x2,y,col=clrsTmp,pch=clrsTmp,cex=clrsTmp)
+par(old.par)
+```
+
+```{r,fig.width=8,fig.height=8}
+# x1 and x2:
+summary(lm(y~x1+x2))
+old.par <- par(mfrow=c(2,2),ps=16)
+plot(lm(y~x1+x2))
+par(old.par)
+# just x1:
+summary(lm(y~x1))
+old.par <- par(mfrow=c(2,2),ps=16)
+plot(lm(y~x1))
+par(old.par)
+# just x2:
+summary(lm(y~x2))
+old.par <- par(mfrow=c(2,2),ps=16)
+plot(lm(y~x2))
+par(old.par)
+```
+
+## Ch.3.7, Exercise 11
+
+"In this problem we will investigate the t-statistic for the null hypothesis H0 : $\beta = 0$ in simple linear regression without an intercept. To begin, we generate a predictor `x` and a response `y` as follows."
+
+```{r}
+set.seed(10)
+x=rnorm(100)
+y=2*x+rnorm(100)
+```
+
+```{r,fig.height=6,fig.width=6}
+plot(x,y)
+```
+
+"(a) Perform a simple linear regression of `y` onto `x`, without an intercept.  Report the coefficient estimate $\hat{\beta}$, the standard error of  this coefficient estimate, and the t-statistic and p-value associated with the null hypothesis H0 : $\beta = 0$. Comment on these results. (You can perform regression without an intercept using the command `lm(y~x+0)`.)"
+
+NB: tilde `lm(y~x+0)` and tilde `lm(y???x+0)`
+
+```{r}
+summary(lm(y~x+0))
+summary(lm(y~x+0))$coefficients
+```
+
+"(b) Now perform a simple linear regression of `x` onto `y` without an intercept, and report the coefficient estimate, its standard error, and the corresponding t-statistic and p-values associated with the null hypothesis H0 : $\beta = 0$. Comment on these results."
+
+```{r}
+summary(lm(x~y+0))
+summary(lm(x~y+0))$coefficients
+```
+
+"(c) What is the relationship between the results obtained in (a) and (b)?"
+
+"(d)-(e)" paper exercise
+
+"(f) In R, show that when regression is performed with an intercept,
+the t-statistic for H0 : $\beta_1 = 0$ is the same for the regression of y
+onto x as it is for the regression of x onto y."
+
+```{r}
+summary(lm(y~x))$coefficients
+summary(lm(x~y))$coefficients
+```
+
+## Ch.3.7, Exercise 12
+
+"This problem involves simple linear regression without an intercept."
+
+"(a) Recall that the coefficient estimate $\hat{\beta}$ for the linear regression of $Y$ onto $X$ without an intercept is given by (3.38). Under what circumstance is the coefficient estimate for the regression of $X$ onto $Y$ the same as the coefficient estimate for the regression of $Y$ onto $X$?"
+
+"(b) Generate an example in R with $n = 100$ observations in which the coefficient estimate for the regression of $X$ onto $Y$ is different from the coefficient estimate for the regression of $Y$ onto $X$."
+
+```{r}
+x <- rnorm(100)
+y <- rnorm(100)
+summary(lm(y~x+0))$coefficients
+summary(lm(x~y+0))$coefficients
+```
+
+"(c) Generate an example in R with $n = 100$ observations in which the coefficient estimate for the regression of X onto Y is the same as the coefficient estimate for the regression of $Y$ onto $X$."
+
+```{r}
+y <- sample(x)
+summary(lm(y~x+0))$coefficients
+summary(lm(x~y+0))$coefficients
+```
+
+A more subtle example:
+
+```{r}
+set.seed(1)
+x <- rnorm(100)
+y <- rnorm(length(x))
+summary(lm(y~x+0))$coefficients
+summary(lm(x~y+0))$coefficients
+sum(y^2)
+sum(x^2)
+sum(y[-1]^2)
+sum(x[-1]^2)
+x[1] <- sqrt(sum(y^2)-sum(x[-1]^2))
+x[1]
+summary(lm(y~x+0))$coefficients
+summary(lm(x~y+0))$coefficients
+x[1] <- -sqrt(sum(y^2)-sum(x[-1]^2))
+x[1]
+summary(lm(y~x+0))$coefficients
+summary(lm(x~y+0))$coefficients
+```
+
+
+## Ch.3.7, Exercise 15
+
+This problem involves the Boston data set, which we saw in the lab for this chapter. We will now try to predict per capita crime rate using the other variables in this data set. In other words, per capita crime rate is the response, and the other variables are the predictors.
+
+```{r Ch3Ex15,fig.width=10,fig.height=10}
+library(MASS)
+class(Boston)
+dim(Boston)
+head(Boston)
+summary(Boston)
+pairs(Boston)
+```
+
+(a) For each predictor, fit a simple linear regression model to predict the response. Describe your results. In which of the models is there a statistically significant association between the predictor and the response? Create some plots to back up your assertions.
+
+```{r Ch3Ex15a}
+tmp1Dcoefs <- NULL
+tmpNms <- NULL
+for ( iTmp in 2:dim(Boston)[2] ) {
+  cat(colnames(Boston)[iTmp],fill=TRUE)
+  lmTmp <- lm(crim~.,Boston[,c(1,iTmp)])
+  tmp1Dcoefs <- c(tmp1Dcoefs,coef(lmTmp)[2])
+  tmpNms <- c(tmpNms,colnames(Boston)[iTmp])
+  print(summary(lmTmp))
+  plot(Boston[,c(iTmp,1)])
+  abline(lm(crim~.,Boston[,c(1,iTmp)]))
+}
+names(tmp1Dcoefs) <- tmpNms
+```
+
+```{r Ch3Ex15amedv}
+# crim~medv:
+old.par <- par(mfrow=c(1,2))
+plot(Boston[,c(dim(Boston)[2],1)])
+abline(lm(crim~medv,Boston),col=2)
+plot(log(Boston[,c(dim(Boston)[2],1)]))
+abline(lm(log(crim)~log(medv),Boston),col=2)
+par(old.par)
+summary(lm(log(crim)~log(medv),Boston))
+summary(lm(crim~medv,Boston))
+plot(lm(crim~medv,Boston))
+plot(lm(log(crim)~log(medv),Boston))
+```
+
+(b) Fit a multiple regression model to predict the response using all of the predictors. Describe your results. For which predictors can we reject the null hypothesis H0 : $\beta_j = 0$?
+
+```{r Ch3Ex15b}
+# all variables:
+summary(lm(crim~.,Boston))
+old.par <- par(mfrow=c(2,2))
+plot(lm(crim~.,Boston))
+par(old.par)
+plot(Boston[,c("rad","crim")])
+plot(Boston[,c("rad","crim")],log="xy")
+```
+
+(c) How do your results from (a) compare to your results from (b)? Create a plot displaying the univariate regression coefficients from (a) on the x-axis, and the multiple regression coefficients from (b) on the y-axis. That is, each predictor is displayed as a single point in the plot. Its coefficient in a simple linear regression model is shown on the x-axis, and its coefficient estimate in the multiple linear regression model is shown on the y-axis.
+
+```{r Ch3Ex15c}
+plot(tmp1Dcoefs,coef(lm(crim~.,Boston))[names(tmp1Dcoefs)],xlab="Univariate",ylab="Multivariate")
+plot(tmp1Dcoefs,coef(lm(crim~.,Boston))[names(tmp1Dcoefs)],ylim=c(-2,2),xlim=c(-5,5))
+text(tmp1Dcoefs,coef(lm(crim~.,Boston))[names(tmp1Dcoefs)],names(tmp1Dcoefs))
+abline(h=0)
+abline(v=0)
+abline(0,1,lty=2)
+```
+
+```{r Ch3Ex15detc}
+# non-linear fits:
+for ( iTmp in 2:dim(Boston)[2] ) {
+  cat(colnames(Boston)[iTmp],fill=TRUE)
+  tmpDat <- Boston[,c(1,iTmp)]
+  tmpDat <- cbind(tmpDat,tmpDat[,2]^2,tmpDat[,2]^3)
+  colnames(tmpDat) <- c("crim",paste0(colnames(Boston)[iTmp],c("","2","3")))
+  lmTmp <- lm(crim~.,tmpDat)
+  print(summary(lmTmp))
+  plot(Boston[,c(iTmp,1)])
+}
+```
+
+## Ch.5.4, Exercise 9
+
+We will now consider the `Boston` housing data set, from the `MASS` library.
+
+(a) Based on this data set, provide an estimate for the population mean of `medv`. Call this estimate $\hat{\mu}$.
+
+```{r Ch5Ex9a}
+plot(sort(Boston[,"medv"]))
+mean(Boston[,"medv"])
+```
+
+(b) Provide an estimate of the standard error of $\hat{\mu}$. Interpret this result.
+
+*Hint: We can compute the standard error of the sample mean by dividing the sample standard deviation by the square root of the number of observations.*
+
+```{r Ch5Ex9b}
+sd(Boston[,"medv"]) / sqrt(nrow(Boston))
+```
+
+(c) Now estimate the standard error of $\hat{\mu}$ using the bootstrap. How does this compare to your answer from (b)?
+
+```{r Ch5Ex9c}
+library(boot)
+boot(Boston,function(x,i)mean(x[i,"medv"]),1000)
+```
+
+(d) Based on your bootstrap estimate from (c), provide a 95% confidence interval for the mean of medv. Compare it to the results
+obtained using `t.test(Boston$medv)`.
+
+*Hint: You can approximate a 95% confidence interval using the formula $\left[\hat{\mu}-2SE(\hat{\mu}), \hat{\mu}+2SE(\hat{\mu})\right]$.
+
+```{r Ch5Ex9d}
+boot.ci(boot(Boston,function(x,i)mean(x[i,"medv"]),1000))
+t.test(Boston[,"medv"])$conf.int
+```
+
+(e) Based on this data set, provide an estimate, $\hat{\mu}_{med}$, for the median value of `medv` in the population.
+
+```{r Ch5Ex9e}
+median(Boston[,"medv"])
+```
+
+(f) We now would like to estimate the standard error of $\hat{\mu}_{med}$. Unfortunately, there is no simple formula for computing the standard error of the median. Instead, estimate the standard error of the median using the bootstrap. Comment on your findings.
+
+```{r Ch5Ex9f}
+boot(Boston,function(x,i)median(x[i,"medv"]),1000)
+boot.ci(boot(Boston,function(x,i)median(x[i,"medv"]),1000))
+```
+
+(g) Based on this data set, provide an estimate for the tenth percentile of `medv` in Boston suburbs. Call this quantity $\hat{\mu}_{0.1}$. (You can use the `quantile()` function.)
+
+```{r Ch5Ex9g}
+quantile(Boston[,"medv"],prob=0.1)
+```
+
+(h) Use the bootstrap to estimate the standard error of $\hat{\mu}_{0.1}$. Comment on your findings.
+
+```{r Ch5Ex9h}
+boot(Boston,function(x,i)quantile(x[i,"medv"],prob=0.1),1000)
+boot.ci(boot(Boston,function(x,i)quantile(x[i,"medv"],prob=0.1),1000))
+```
+

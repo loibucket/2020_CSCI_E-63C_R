@@ -1,0 +1,38 @@
+---
+title: "CSCI E-63C Week 10 Problem Set"
+output:
+  html_document:
+    toc: true
+---
+
+# Preface
+
+For this week problem set we will use WiFi localization data (the one we worked with on week 2) to fit logistic regression model and evaluate performance of LDA, QDA and KNN classifiers.  As we have seen earlier this dataset should allow to locate phones fairly well by relying on the strength of WiFi signal, so we should expect to see fairly low error rates for our classifiers.  Let's see whether some of those classifiers perform better than others on this data.
+
+**Important note:** *For the purposes of all problems in this week problem set, we will be predicting whether the phone is at location=3 or not, as opposed to working with multi-class predictor.  In other words, before you proceed with any of the problems in this assignment, please convert the four-levels outcome to the outcome with only two levels: location=3 (must be 500 of those) and not (must be 1500 of them).*
+
+*If you are creating a new column containing this binary outcome, please make sure that the original outcome with four columns is NOT used inadvertently as one of the predictors.  If you are getting invariably 100% accuracy regardless of the choice of the method or split of the data into training and test, chances are your code is using original four-levels outcome as a predictor.*
+
+# Problem 1 (10 points): logistic regression
+
+Fit logistic regression model of the binary categorical outcome (location=3 or not) using seven WiFi signals strengths as predictors in the model.  Produce summary of the model, describe which attributes appear to be significantly associated with the categorical outcome in this model.  Use this model to make predictions on the entire dataset and compare these predictions and corresponding true values of the class attribute using confusion matrix (i.e. contingency table).  Calculate error rate (would this be training or test error in this case?), sensitivity and specificity (assuming that we are predicting class "location=3").  Describe the results.
+
+# Problem 2 (10 points): LDA and QDA
+
+Using LDA and QDA implementations available in the package `MASS`, fit LDA and QDA classifiers on the entire dataset and calculate confusion matrix, (training) error rate, sensitivity and specificity for each of them.  Compare them to those of logistic regression.  Describe the results.
+
+# Problem 3 (10 points): KNN
+
+Using `knn` from library `class`, fit KNN classifiers for the entire dataset and calculate confusion matrix, (training) error rate, sensitivity/specificity for  $k=1$, $5$ and $25$ nearest neighbors models.  Compare them to the corresponding results from LDA, QDA and logistic regression. Describe results of this comparison and discuss whether it is surprising to see low *training* error for KNN classifier with $k=1$.
+
+# Problem 4 (30 points): compare test errors of logistic regression, LDA, QDA and KNN
+
+Using resampling approach of your choice (e.g. cross-validation, bootstrap, etc.) obtain test error as well as sensitivity and specificity for each of these methods (logistic regression, LDA, QDA, KNN with $k=1,7,55,351$).  Present results in the form of boxplots, compare test error/sensitivity/specificity across these methods and discuss their relative performance.
+
+# Extra 5 points problem: naive Bayes classifier
+
+Fit naive Bayes classifier (see lecture slides for examples of using `naiveBayes` function from package `e1071`) to the WiFi localization dataset with binary (location=3 or not) outcome and assess its performance on test data by resampling along with logistic regression, LDA, QDA and KNN in the Problem 4 above.
+
+# Extra 10 points problem: interaction terms in logistic regression
+
+Add pairwise interaction terms to the logistic regression model fit in the Problem 1 above and evaluate impact of their addition on training **and** test error.  You can add all pairwise interaction terms or a subset of them, in which case the rationale behind selecting such a subset has to be described in your solution.
